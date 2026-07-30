@@ -1,0 +1,19 @@
+appId: ist.solo.dash
+productName: Dash
+directories:
+  buildResources: build
+  output: dist
+
+publish:
+  provider: github
+  owner: solo-ist
+  repo: dash
+
+files:
+  - out/**/*
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
