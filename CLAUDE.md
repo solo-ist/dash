@@ -7,7 +7,7 @@ Claude-specific context only.
 ## Project context
 
 - Dash is a Todoist rebuild as a sibling solo.ist app to Prose
-  (`/Users/solo-one/Code/prose`) — when a design/pattern question isn't answered
+  (`../prose`) — when a design/pattern question isn't answered
   here, Prose is the reference implementation (window boilerplate, shadcn usage,
   settings persistence, menu structure).
 - Roadmap and progress live on the GitHub Projects board and issues at
