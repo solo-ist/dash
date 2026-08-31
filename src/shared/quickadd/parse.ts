@@ -72,7 +72,7 @@ function getWeekdayIndex(token: string): number | null {
   return index === -1 ? null : index + 1; // 1=Monday, 7=Sunday
 }
 
-function parseRecur(text: string, now: Date): { parsed: ParsedRecur; consumed: string } | null {
+function parseRecur(text: string, _now: Date): { parsed: ParsedRecur; consumed: string } | null {
   const lowerText = text.toLowerCase();
   
   // Check for strict recurrence prefix
