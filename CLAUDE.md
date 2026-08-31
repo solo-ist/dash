@@ -6,6 +6,9 @@ Claude-specific context only.
 
 ## Project context
 
+- **`promptstack/` is the repo's primary artifact** — intent, architecture,
+  environment, build plan, verification gates. Read its README for precedence
+  rules; it delegates depth to `docs/`.
 - Dash is a Todoist rebuild as a sibling solo.ist app to Prose
   (`../prose`) — when a design/pattern question isn't answered
   here, Prose is the reference implementation (window boilerplate, shadcn usage,
