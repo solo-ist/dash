@@ -14,6 +14,7 @@
     "build:mac": "npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
+    "verify": "npm run typecheck && vitest run --passWithNoTests",
     "test:e2e": "npm run build && npx playwright test",
     "clean": "rm -rf out dist node_modules/.vite .dev.pid"
   },
