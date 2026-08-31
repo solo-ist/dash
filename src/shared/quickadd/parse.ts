@@ -41,7 +41,7 @@ const DATE_WORD_RE = new RegExp(
 
 const TIME_SCAN_RE = /\b(?:noon|\d{1,2}(?::[0-5]\d)?\s?(?:am|pm)|(?:[01]?\d|2[0-3]):[0-5]\d)\b/gi;
 
-const EVERY_RE = /\bevery(!)?\b/gi;
+const EVERY_RE = /\bevery(!)?/gi;
 
 function overlaps(ranges: Range[], start: number, end: number): boolean {
   return ranges.some((r) => start < r.end && end > r.start);
