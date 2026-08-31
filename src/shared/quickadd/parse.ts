@@ -1,6 +1,6 @@
 import { Span, ParsedDue, ParsedRecur, ParseResult } from './types';
 
-const WORD_BOUNDARY = /\b/;
+
 const DURATION_REGEX = /^(\d+)([mh])$/;
 const TIME_REGEX = /^(\d{1,2})(?::(\d{2}))?(am|pm)?$/;
 const MONTH_NAMES = [
@@ -130,7 +130,6 @@ function parseRecur(text: string, now: Date): { parsed: ParsedRecur; consumed: s
     }
   } else if (MONTH_NAMES.includes(firstPart)) {
     // 'every jan 15'
-    const monthIndex = MONTH_NAMES.indexOf(firstPart);
     if (parts[1] && /^\d+$/.test(parts[1])) {
       freq = 'year';
       canonical += ` ${firstPart} ${parts[1]}`;
