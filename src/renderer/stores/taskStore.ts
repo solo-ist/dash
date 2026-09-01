@@ -1,6 +1,9 @@
 import { create } from 'zustand'
+import type { StoreApi, UseBoundStore } from 'zustand'
 import type { DashApi, TaskAddInput } from '../../shared/api'
 import type { TaskRow } from '../../shared/types'
+
+export type TaskStore = UseBoundStore<StoreApi<TaskState>>
 
 export interface TaskState {
   tasks: TaskRow[]
@@ -15,7 +18,7 @@ export interface TaskState {
 
 let tempIdCounter = 0
 
-export function createTaskStore(api: DashApi): TaskState {
+export function createTaskStore(api: DashApi): TaskStore {
   return create<TaskState>()((set, get) => ({
     tasks: [],
     loaded: false,
@@ -25,7 +28,7 @@ export function createTaskStore(api: DashApi): TaskState {
         const tasks = await api.tasks.list()
         set({ tasks, loaded: true, error: null })
       } catch (err) {
-        set({ error: String(err) })
+        set({ error: err instanceof Error ? err.message : String(err) })
       }
     },
     add: async (input: TaskAddInput) => {
@@ -69,7 +72,7 @@ export function createTaskStore(api: DashApi): TaskState {
         // Rollback on failure
         set((state) => ({
           tasks: state.tasks.filter(task => task.id !== tempId),
-          error: String(err)
+          error: err instanceof Error ? err.message : String(err)
         }))
       }
     },
@@ -100,7 +103,7 @@ export function createTaskStore(api: DashApi): TaskState {
           tasks: state.tasks.map(task => 
             task.id === id ? taskToComplete : task
           ),
-          error: String(err)
+          error: err instanceof Error ? err.message : String(err)
         }))
       }
     },
@@ -131,7 +134,7 @@ export function createTaskStore(api: DashApi): TaskState {
           tasks: state.tasks.map(task => 
             task.id === id ? taskToUncomplete : task
           ),
-          error: String(err)
+          error: err instanceof Error ? err.message : String(err)
         }))
       }
     },
@@ -153,7 +156,7 @@ export function createTaskStore(api: DashApi): TaskState {
         // Rollback on failure
         set((state) => ({
           tasks: [...state.tasks, taskToRemove],
-          error: String(err)
+          error: err instanceof Error ? err.message : String(err)
         }))
       }
     }

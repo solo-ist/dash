@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createTaskStore, selectOpenTasks, selectAllOpenTasks } from './taskStore'
 import type { TaskRow } from '../../shared/types'
+import type { DashApi } from '../../shared/api'
 
 // Helper to create mock TaskRow fixtures
 const createTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
@@ -28,6 +29,20 @@ const createTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   ...overrides
 })
 
+const makeApi = (): DashApi => ({
+  platform: 'test',
+  tasks: {
+    list: vi.fn(),
+    add: vi.fn(),
+    complete: vi.fn(),
+    uncomplete: vi.fn(),
+    delete: vi.fn()
+  },
+  projects: {
+    list: vi.fn()
+  }
+})
+
 describe('taskStore', () => {
   beforeEach(() => {
     // Reset temp ID counter for each test
@@ -35,106 +50,81 @@ describe('taskStore', () => {
   })
 
   it('load populates tasks and sets loaded', async () => {
-    const mockApi = {
-      tasks: {
-        list: vi.fn().mockResolvedValue([createTaskRow({ id: '1' }), createTaskRow({ id: '2' })])
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.list).mockResolvedValue([createTaskRow({ id: '1' }), createTaskRow({ id: '2' })])
 
-    const store = createTaskStore(mockApi)
-    await store.load()
+    const store = createTaskStore(api)
+    await store.getState().load()
 
     expect(store.getState().tasks).toHaveLength(2)
     expect(store.getState().loaded).toBe(true)
     expect(store.getState().error).toBeNull()
-    expect(mockApi.tasks.list).toHaveBeenCalled()
+    expect(api.tasks.list).toHaveBeenCalled()
   })
 
   it('load sets error on failure', async () => {
-    const mockApi = {
-      tasks: {
-        list: vi.fn().mockRejectedValue(new Error('Failed to load'))
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.list).mockRejectedValue(new Error('Failed to load'))
 
-    const store = createTaskStore(mockApi)
-    await store.load()
+    const store = createTaskStore(api)
+    await store.getState().load()
 
     expect(store.getState().error).toBe('Failed to load')
     expect(store.getState().loaded).toBe(false)
   })
 
   it('add inserts an optimistic temp row immediately', async () => {
-    const mockApi = {
-      tasks: {
-        add: vi.fn().mockResolvedValue(createTaskRow({ id: 'real-id' }))
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.add).mockResolvedValue(createTaskRow({ id: 'real-id' }))
 
-    const store = createTaskStore(mockApi)
-    await store.add({
+    const store = createTaskStore(api)
+    const pending = store.getState().add({
       content: 'New task'
     })
 
+    // Immediately assert the temp row is there
     const state = store.getState()
     expect(state.tasks).toHaveLength(1)
     expect(state.tasks[0].id).toMatch(/^temp-\d+$/)
     expect(state.tasks[0].content).toBe('New task')
     expect(state.error).toBeNull()
+
+    // Wait for async operation
+    await pending
+    
+    // Verify the real task was inserted
+    const finalState = store.getState()
+    expect(finalState.tasks).toHaveLength(1)
+    expect(finalState.tasks[0].id).toBe('real-id')
+    expect(finalState.tasks[0].content).toBe('New task')
+    expect(api.tasks.add).toHaveBeenCalled()
   })
 
   it('add replaces temp row with real row on success', async () => {
-    const mockApi = {
-      tasks: {
-        add: vi.fn().mockResolvedValue(createTaskRow({ id: 'real-id', content: 'Real task' }))
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.add).mockResolvedValue(createTaskRow({ id: 'real-id', content: 'Real task' }))
 
-    const store = createTaskStore(mockApi)
-    await store.add({
+    const store = createTaskStore(api)
+    await store.getState().add({
       content: 'New task'
     })
 
-    // Wait a tick for the async operation to complete
-    await new Promise(resolve => setTimeout(resolve, 0))
-    
     const state = store.getState()
     expect(state.tasks).toHaveLength(1)
     expect(state.tasks[0].id).toBe('real-id')
     expect(state.tasks[0].content).toBe('Real task')
-    expect(mockApi.tasks.add).toHaveBeenCalled()
+    expect(api.tasks.add).toHaveBeenCalled()
   })
 
   it('add rolls back to prior list and sets error on failure', async () => {
-    const mockApi = {
-      tasks: {
-        add: vi.fn().mockRejectedValue(new Error('Failed to add'))
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.add).mockRejectedValue(new Error('Failed to add'))
 
-    const store = createTaskStore(mockApi)
-    await store.add({
+    const store = createTaskStore(api)
+    await store.getState().add({
       content: 'New task'
     })
 
-    // Wait a tick for the async operation to complete
-    await new Promise(resolve => setTimeout(resolve, 0))
-    
     const state = store.getState()
     expect(state.tasks).toHaveLength(0)
     expect(state.error).toBe('Failed to add')
@@ -142,19 +132,13 @@ describe('taskStore', () => {
 
   it('complete sets checked=1 optimistically and rolls back on reject', async () => {
     const initialTask = createTaskRow({ id: 'task-1', checked: 0 })
-    const mockApi = {
-      tasks: {
-        complete: vi.fn().mockRejectedValue(new Error('Failed to complete'))
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.complete).mockRejectedValue(new Error('Failed to complete'))
 
-    const store = createTaskStore(mockApi)
+    const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
 
-    await store.complete('task-1')
+    await store.getState().complete('task-1')
 
     const state = store.getState()
     expect(state.tasks[0].checked).toBe(0) // Should be rolled back
@@ -168,41 +152,29 @@ describe('taskStore', () => {
       checked: 1,
       completed_at: new Date().toISOString()
     })
-    const mockApi = {
-      tasks: {
-        complete: vi.fn().mockResolvedValue(completedTask)
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.complete).mockResolvedValue(completedTask)
 
-    const store = createTaskStore(mockApi)
+    const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
 
-    await store.complete('task-1')
+    await store.getState().complete('task-1')
 
     const state = store.getState()
     expect(state.tasks[0].checked).toBe(1)
     expect(state.tasks[0].completed_at).not.toBeNull()
-    expect(mockApi.tasks.complete).toHaveBeenCalled()
+    expect(api.tasks.complete).toHaveBeenCalled()
   })
 
   it('remove drops the row and restores it on reject', async () => {
     const initialTask = createTaskRow({ id: 'task-1' })
-    const mockApi = {
-      tasks: {
-        delete: vi.fn().mockRejectedValue(new Error('Failed to delete'))
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.delete).mockRejectedValue(new Error('Failed to delete'))
 
-    const store = createTaskStore(mockApi)
+    const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
 
-    await store.remove('task-1')
+    await store.getState().remove('task-1')
 
     const state = store.getState()
     expect(state.tasks).toHaveLength(1) // Should be rolled back
@@ -211,23 +183,17 @@ describe('taskStore', () => {
 
   it('remove removes task on success', async () => {
     const initialTask = createTaskRow({ id: 'task-1' })
-    const mockApi = {
-      tasks: {
-        delete: vi.fn().mockResolvedValue(undefined)
-      },
-      projects: {
-        list: vi.fn()
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.tasks.delete).mockResolvedValue(undefined)
 
-    const store = createTaskStore(mockApi)
+    const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
 
-    await store.remove('task-1')
+    await store.getState().remove('task-1')
 
     const state = store.getState()
     expect(state.tasks).toHaveLength(0)
-    expect(mockApi.tasks.delete).toHaveBeenCalled()
+    expect(api.tasks.delete).toHaveBeenCalled()
   })
 
   it('selectOpenTasks filters checked/deleted/project and sorts by added_at', () => {
@@ -258,4 +224,4 @@ describe('taskStore', () => {
     expect(result[0].id).toBe('3') // sorted by added_at ascending
     expect(result[1].id).toBe('4')
   })
-})
+}

@@ -1,19 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createProjectStore, selectInbox, selectFavorites, selectRegularProjects } from './projectStore'
 import type { ProjectRow } from '../../shared/types'
+import type { DashApi } from '../../shared/api'
 
 // Helper to create mock ProjectRow fixtures
 const createProjectRow = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   id: 'test-id',
   name: 'Test Project',
+  description: '',
   color: 'blue',
-  is_favorite: 0,
+  parent_id: null,
   is_inbox: 0,
+  is_favorite: 0,
+  view_style: 'list',
   child_order: 0,
-  deleted_at: null,
-  added_at: new Date().toISOString(),
+  archived_at: null,
   updated_at: new Date().toISOString(),
+  deleted_at: null,
   ...overrides
+})
+
+const makeApi = (): DashApi => ({
+  platform: 'test',
+  tasks: {
+    list: vi.fn(),
+    add: vi.fn(),
+    complete: vi.fn(),
+    uncomplete: vi.fn(),
+    delete: vi.fn()
+  },
+  projects: {
+    list: vi.fn()
+  }
 })
 
 describe('projectStore', () => {
@@ -22,36 +40,24 @@ describe('projectStore', () => {
   })
 
   it('load populates projects and sets loaded', async () => {
-    const mockApi = {
-      tasks: {
-        list: vi.fn()
-      },
-      projects: {
-        list: vi.fn().mockResolvedValue([createProjectRow({ id: '1' }), createProjectRow({ id: '2' })])
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.projects.list).mockResolvedValue([createProjectRow({ id: '1' }), createProjectRow({ id: '2' })])
 
-    const store = createProjectStore(mockApi)
-    await store.load()
+    const store = createProjectStore(api)
+    await store.getState().load()
 
     expect(store.getState().projects).toHaveLength(2)
     expect(store.getState().loaded).toBe(true)
     expect(store.getState().error).toBeNull()
-    expect(mockApi.projects.list).toHaveBeenCalled()
+    expect(api.projects.list).toHaveBeenCalled()
   })
 
   it('load sets error on failure', async () => {
-    const mockApi = {
-      tasks: {
-        list: vi.fn()
-      },
-      projects: {
-        list: vi.fn().mockRejectedValue(new Error('Failed to load'))
-      }
-    }
+    const api = makeApi()
+    vi.mocked(api.projects.list).mockRejectedValue(new Error('Failed to load'))
 
-    const store = createProjectStore(mockApi)
-    await store.load()
+    const store = createProjectStore(api)
+    await store.getState().load()
 
     expect(store.getState().error).toBe('Failed to load')
     expect(store.getState().loaded).toBe(false)
@@ -105,4 +111,4 @@ describe('projectStore', () => {
     expect(result[0].id).toBe('4') // sorted by child_order then name
     expect(result[1].id).toBe('3')
   })
-})
+}

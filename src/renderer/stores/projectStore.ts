@@ -1,6 +1,9 @@
 import { create } from 'zustand'
+import type { StoreApi, UseBoundStore } from 'zustand'
 import type { DashApi } from '../../shared/api'
 import type { ProjectRow } from '../../shared/types'
+
+export type ProjectStore = UseBoundStore<StoreApi<ProjectState>>
 
 export interface ProjectState {
   projects: ProjectRow[]
@@ -9,7 +12,7 @@ export interface ProjectState {
   load: () => Promise<void>
 }
 
-export function createProjectStore(api: DashApi): ProjectState {
+export function createProjectStore(api: DashApi): ProjectStore {
   return create<ProjectState>()((set) => ({
     projects: [],
     loaded: false,
@@ -19,7 +22,7 @@ export function createProjectStore(api: DashApi): ProjectState {
         const projects = await api.projects.list()
         set({ projects, loaded: true, error: null })
       } catch (err) {
-        set({ error: String(err) })
+        set({ error: err instanceof Error ? err.message : String(err) })
       }
     }
   }))
