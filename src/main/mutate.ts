@@ -145,6 +145,15 @@ function deleteTask(db: Database, op: Extract<Op, { type: 'task.delete' }>): Tas
   return row
 }
 
+function undeleteTask(db: Database, op: Extract<Op, { type: 'task.undelete' }>): TaskRow {
+  const row = readTaskRow(db, op.id)
+  if (!row) throw new Error(`task not found: ${op.id}`)
+  const now = nowIso()
+  db.prepare('UPDATE tasks SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(now, op.id)
+
+  return requireTaskRow(db, op.id)
+}
+
 function addProject(db: Database, op: Extract<Op, { type: 'project.add' }>): ProjectRow {
   const now = nowIso()
   const id = nanoid(21)
@@ -201,6 +210,8 @@ function applyOp(db: Database, op: Op): MutateResult {
       return { tasks: [deleteTask(db, op)] }
     case 'task.uncomplete':
       return { tasks: [uncompleteTask(db, op)] }
+    case 'task.undelete':
+      return { tasks: [undeleteTask(db, op)] }
     case 'project.add':
       return { projects: [addProject(db, op)] }
     case 'project.update':

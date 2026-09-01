@@ -6,9 +6,10 @@ export interface TaskListProps {
   tasks: TaskRow[]
   error: string | null
   onComplete: (id: string) => void
+  onDelete: (id: string) => void
 }
 
-export function TaskList({ tasks, error, onComplete }: TaskListProps): React.JSX.Element {
+export function TaskList({ tasks, error, onComplete, onDelete }: TaskListProps): React.JSX.Element {
   return (
     <div className="flex h-full flex-col">
       {error !== null && (
@@ -21,7 +22,7 @@ export function TaskList({ tasks, error, onComplete }: TaskListProps): React.JSX
       ) : (
         <ScrollArea className="flex-1">
           {tasks.map((task) => (
-            <TaskRowItem key={task.id} task={task} onComplete={onComplete} />
+            <TaskRowItem key={task.id} task={task} onComplete={onComplete} onDelete={onDelete} />
           ))}
         </ScrollArea>
       )}

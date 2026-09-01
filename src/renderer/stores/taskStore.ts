@@ -14,6 +14,7 @@ export interface TaskState {
   complete: (id: string) => Promise<void>
   uncomplete: (id: string) => Promise<void>
   remove: (id: string) => Promise<void>
+  undelete: (id: string) => Promise<void>
 }
 
 let tempIdCounter = 0
@@ -158,6 +159,17 @@ export function createTaskStore(api: DashApi): TaskStore {
           tasks: [...state.tasks, taskToRemove],
           error: err instanceof Error ? err.message : String(err)
         }))
+      }
+    },
+    undelete: async (id: string) => {
+      try {
+        const restored = await api.tasks.undelete(id)
+        set((state) => ({
+          tasks: [...state.tasks.filter(task => task.id !== restored.id), restored],
+          error: null
+        }))
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
       }
     }
   }))

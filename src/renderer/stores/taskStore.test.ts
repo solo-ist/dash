@@ -36,7 +36,8 @@ const makeApi = (): DashApi => ({
     add: vi.fn(),
     complete: vi.fn(),
     uncomplete: vi.fn(),
-    delete: vi.fn()
+    delete: vi.fn(),
+    undelete: vi.fn()
   },
   projects: {
     list: vi.fn()
@@ -194,6 +195,38 @@ describe('taskStore', () => {
     const state = store.getState()
     expect(state.tasks).toHaveLength(0)
     expect(api.tasks.delete).toHaveBeenCalled()
+  })
+
+  it('undelete restores the task into state on success', async () => {
+    const restoredTask = createTaskRow({ id: 'task-1', deleted_at: null })
+    const api = makeApi()
+    vi.mocked(api.tasks.undelete).mockResolvedValue(restoredTask)
+
+    const store = createTaskStore(api)
+    store.setState({ tasks: [] })
+
+    await store.getState().undelete('task-1')
+
+    const state = store.getState()
+    expect(state.tasks).toHaveLength(1)
+    expect(state.tasks[0].id).toBe('task-1')
+    expect(state.tasks[0].deleted_at).toBeNull()
+    expect(state.error).toBeNull()
+    expect(api.tasks.undelete).toHaveBeenCalled()
+  })
+
+  it('undelete leaves tasks unchanged and sets error on failure', async () => {
+    const api = makeApi()
+    vi.mocked(api.tasks.undelete).mockRejectedValue(new Error('Failed to undelete'))
+
+    const store = createTaskStore(api)
+    store.setState({ tasks: [] })
+
+    await store.getState().undelete('task-1')
+
+    const state = store.getState()
+    expect(state.tasks).toHaveLength(0)
+    expect(state.error).toBe('Failed to undelete')
   })
 
   it('selectOpenTasks filters checked/deleted/project and sorts by added_at', () => {

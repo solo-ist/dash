@@ -21,6 +21,7 @@ export interface DashApi {
     complete: (id: string) => Promise<TaskRow>
     uncomplete: (id: string) => Promise<TaskRow>
     delete: (id: string) => Promise<TaskRow>
+    undelete: (id: string) => Promise<TaskRow>
   }
   projects: {
     list: () => Promise<ProjectRow[]>

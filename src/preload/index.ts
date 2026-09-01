@@ -10,7 +10,8 @@ const api: DashApi = {
     add: (input: TaskAddInput) => ipcRenderer.invoke('tasks:add', input),
     complete: (id) => ipcRenderer.invoke('tasks:complete', id),
     uncomplete: (id) => ipcRenderer.invoke('tasks:uncomplete', id),
-    delete: (id) => ipcRenderer.invoke('tasks:delete', id)
+    delete: (id) => ipcRenderer.invoke('tasks:delete', id),
+    undelete: (id) => ipcRenderer.invoke('tasks:undelete', id)
   },
   projects: {
     list: () => ipcRenderer.invoke('projects:list')

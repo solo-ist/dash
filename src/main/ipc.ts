@@ -38,6 +38,11 @@ export function registerIpc(db: Database): void {
     return requireTask(mutate(db, { type: 'task.delete', id: parsed }))
   })
 
+  ipcMain.handle('tasks:undelete', (_event, id: unknown): TaskRow => {
+    const parsed = z.string().parse(id)
+    return requireTask(mutate(db, { type: 'task.undelete', id: parsed }))
+  })
+
   ipcMain.handle('projects:list', (): ProjectRow[] => {
     return listProjects(db)
   })

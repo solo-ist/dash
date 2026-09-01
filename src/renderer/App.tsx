@@ -4,6 +4,7 @@ import { createProjectStore, selectInbox, selectFavorites, selectRegularProjects
 import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
 import { QuickAdd } from './components/app/QuickAdd'
+import { UndoBar, type UndoNotice } from './components/app/UndoBar'
 
 const useTaskStore = createTaskStore(window.api)
 const useProjectStore = createProjectStore(window.api)
@@ -13,7 +14,12 @@ export default function App(): React.JSX.Element {
   const taskError = useTaskStore((s) => s.error)
   const loadTasks = useTaskStore((s) => s.load)
   const completeTask = useTaskStore((s) => s.complete)
+  const uncompleteTask = useTaskStore((s) => s.uncomplete)
+  const removeTask = useTaskStore((s) => s.remove)
+  const undeleteTask = useTaskStore((s) => s.undelete)
   const addTask = useTaskStore((s) => s.add)
+
+  const [undoNotice, setUndoNotice] = useState<UndoNotice | null>(null)
 
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -40,6 +46,28 @@ export default function App(): React.JSX.Element {
   const openTasks = selectedProjectId === null ? [] : selectOpenTasks(tasks, selectedProjectId)
   const error = taskError ?? projectError
 
+  const handleComplete = (id: string): void => {
+    void completeTask(id)
+    setUndoNotice({
+      message: 'Task completed',
+      onUndo: () => {
+        void uncompleteTask(id)
+        setUndoNotice(null)
+      }
+    })
+  }
+
+  const handleDelete = (id: string): void => {
+    void removeTask(id)
+    setUndoNotice({
+      message: 'Task deleted',
+      onUndo: () => {
+        void undeleteTask(id)
+        setUndoNotice(null)
+      }
+    })
+  }
+
   return (
     <div className="flex h-screen flex-col">
       <header className="app-region-drag flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
@@ -58,8 +86,11 @@ export default function App(): React.JSX.Element {
           selectedProjectId={selectedProjectId}
           onSelect={setSelectedProjectId}
         />
-        <main className="flex-1 overflow-hidden">
-          <TaskList tasks={openTasks} error={error} onComplete={(id) => void completeTask(id)} />
+        <main className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-hidden">
+            <TaskList tasks={openTasks} error={error} onComplete={handleComplete} onDelete={handleDelete} />
+          </div>
+          <UndoBar notice={undoNotice} onDismiss={() => setUndoNotice(null)} />
         </main>
       </div>
     </div>
