@@ -27,7 +27,8 @@ const makeApi = (): DashApi => ({
     add: vi.fn(),
     complete: vi.fn(),
     uncomplete: vi.fn(),
-    delete: vi.fn()
+    delete: vi.fn(),
+    undelete: vi.fn()
   },
   projects: {
     list: vi.fn()
