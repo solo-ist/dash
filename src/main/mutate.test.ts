@@ -91,6 +91,32 @@ describe('mutate', () => {
     expect(completions).toHaveLength(1)
   })
 
+  it('uncompletes a task, clearing checked state and removing the completion', () => {
+    const added = mutate(db, { type: 'task.add', content: 'Ship it' })
+    const id = added.tasks![0].id
+
+    mutate(db, { type: 'task.complete', id })
+    const uncompleted = mutate(db, { type: 'task.uncomplete', id })
+
+    expect(uncompleted.tasks?.[0].checked).toBe(0)
+    expect(uncompleted.tasks?.[0].completed_at).toBeNull()
+
+    const completions = db
+      .prepare('SELECT * FROM completions WHERE task_id = ?')
+      .all(id) as Array<{ task_id: string }>
+    expect(completions).toHaveLength(0)
+  })
+
+  it('uncompletes a never-completed task without throwing', () => {
+    const added = mutate(db, { type: 'task.add', content: 'Never done' })
+    const id = added.tasks![0].id
+
+    const result = mutate(db, { type: 'task.uncomplete', id })
+
+    expect(result.tasks?.[0].checked).toBe(0)
+    expect(result.tasks?.[0].completed_at).toBeNull()
+  })
+
   it('makes newly added task content searchable via task_fts', () => {
     mutate(db, { type: 'task.add', content: 'Search for the golden goose' })
 

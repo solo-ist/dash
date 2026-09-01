@@ -117,6 +117,24 @@ function completeTask(db: Database, op: Extract<Op, { type: 'task.complete' }>):
   return requireTaskRow(db, op.id)
 }
 
+function uncompleteTask(db: Database, op: Extract<Op, { type: 'task.uncomplete' }>): TaskRow {
+  requireTaskRow(db, op.id)
+  const now = nowIso()
+
+  db.prepare(
+    `DELETE FROM completions WHERE rowid = (
+       SELECT rowid FROM completions WHERE task_id = ? ORDER BY completed_at DESC LIMIT 1
+     )`
+  ).run(op.id)
+
+  db.prepare('UPDATE tasks SET checked = 0, completed_at = NULL, updated_at = ? WHERE id = ?').run(
+    now,
+    op.id
+  )
+
+  return requireTaskRow(db, op.id)
+}
+
 function deleteTask(db: Database, op: Extract<Op, { type: 'task.delete' }>): TaskRow {
   requireTaskRow(db, op.id)
   const now = nowIso()
@@ -181,6 +199,8 @@ function applyOp(db: Database, op: Op): MutateResult {
       return { tasks: [completeTask(db, op)] }
     case 'task.delete':
       return { tasks: [deleteTask(db, op)] }
+    case 'task.uncomplete':
+      return { tasks: [uncompleteTask(db, op)] }
     case 'project.add':
       return { projects: [addProject(db, op)] }
     case 'project.update':

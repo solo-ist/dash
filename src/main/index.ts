@@ -1,8 +1,13 @@
 import { app, shell, BrowserWindow, Menu } from 'electron'
 import { join } from 'path'
+import type Database from 'better-sqlite3'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { openDatabase } from './db/open'
+import { migrate } from './db/migrate'
+import { registerIpc } from './ipc'
 
 let quitting = false
+let db: Database
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -76,6 +81,10 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  db = openDatabase(join(app.getPath('userData'), 'dash.db'))
+  migrate(db)
+  registerIpc(db)
+
   buildMenu()
   createWindow()
 
@@ -88,6 +97,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true
+  db?.close()
 })
 
 app.on('window-all-closed', () => {

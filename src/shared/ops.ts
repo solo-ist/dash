@@ -37,6 +37,11 @@ const TaskDeleteSchema = z.object({
   id: z.string()
 })
 
+const TaskUncompleteSchema = z.object({
+  type: z.literal('task.uncomplete'),
+  id: z.string()
+})
+
 const ProjectAddSchema = z.object({
   type: z.literal('project.add'),
   name: z.string().min(1),
@@ -62,6 +67,7 @@ export const OpSchema = z.discriminatedUnion('type', [
   TaskUpdateSchema,
   TaskCompleteSchema,
   TaskDeleteSchema,
+  TaskUncompleteSchema,
   ProjectAddSchema,
   ProjectUpdateSchema,
   ProjectDeleteSchema
