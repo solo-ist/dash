@@ -75,7 +75,7 @@ describe('taskStore', () => {
 
   it('add inserts an optimistic temp row immediately', async () => {
     const api = makeApi()
-    vi.mocked(api.tasks.add).mockResolvedValue(createTaskRow({ id: 'real-id' }))
+    vi.mocked(api.tasks.add).mockResolvedValue(createTaskRow({ id: 'real-id', content: 'New task' }))
 
     const store = createTaskStore(api)
     const pending = store.getState().add({
@@ -184,7 +184,7 @@ describe('taskStore', () => {
   it('remove removes task on success', async () => {
     const initialTask = createTaskRow({ id: 'task-1' })
     const api = makeApi()
-    vi.mocked(api.tasks.delete).mockResolvedValue(undefined)
+    vi.mocked(api.tasks.delete).mockResolvedValue(createTaskRow({ id: 'task-1' }))
 
     const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
@@ -224,4 +224,4 @@ describe('taskStore', () => {
     expect(result[0].id).toBe('3') // sorted by added_at ascending
     expect(result[1].id).toBe('4')
   })
-}
+})

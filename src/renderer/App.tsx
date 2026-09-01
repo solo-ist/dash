@@ -3,6 +3,7 @@ import { createTaskStore, selectOpenTasks } from './stores/taskStore'
 import { createProjectStore, selectInbox, selectFavorites, selectRegularProjects } from './stores/projectStore'
 import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
+import { QuickAdd } from './components/app/QuickAdd'
 
 const useTaskStore = createTaskStore(window.api)
 const useProjectStore = createProjectStore(window.api)
@@ -12,6 +13,7 @@ export default function App(): React.JSX.Element {
   const taskError = useTaskStore((s) => s.error)
   const loadTasks = useTaskStore((s) => s.load)
   const completeTask = useTaskStore((s) => s.complete)
+  const addTask = useTaskStore((s) => s.add)
 
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -40,10 +42,13 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="app-region-drag flex h-12 shrink-0 items-center justify-center border-b border-border">
+      <header className="app-region-drag flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <span className="text-sm text-muted-foreground">
           dash<span style={{ color: 'var(--brand-accent)' }}>—</span>
         </span>
+        <div className="app-region-no-drag">
+          <QuickAdd add={addTask} projects={projects} defaultProjectId={selectedProjectId} />
+        </div>
       </header>
       <div className="flex flex-1 overflow-hidden">
         <Sidebar

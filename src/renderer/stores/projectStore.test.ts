@@ -111,4 +111,4 @@ describe('projectStore', () => {
     expect(result[0].id).toBe('4') // sorted by child_order then name
     expect(result[1].id).toBe('3')
   })
-}
+})
