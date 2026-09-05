@@ -1,7 +1,9 @@
-node_modules/
+node_modules
 out/
 dist/
 .dev.pid
 *.log
 .DS_Store
 .claude/.cc-writes/
+test-results/
+playwright-report/
