@@ -1,12 +1,21 @@
 // This spec is run out-of-band via `npm run test:e2e`, not by vitest.
-import { test, expect } from '@playwright/test'
-import { _electron as electron } from 'playwright'
-import { findLatestBuild, parseElectronApp } from 'electron-playwright-helpers'
+import { test, expect, _electron as electron } from '@playwright/test'
+import { mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { fileURLToPath } from 'url'
+
+const here = fileURLToPath(new URL('.', import.meta.url))
+// Isolated userData so the e2e never touches the real dash.db
+// (main/index.ts honors DASH_USER_DATA); one dir per run so the
+// second launch sees the first launch's data.
+const userDataDir = mkdtempSync(join(tmpdir(), 'dash-e2e-'))
 
 async function launchApp() {
-  const build = findLatestBuild()
-  const appInfo = parseElectronApp(build)
-  const app = await electron.launch({ args: [appInfo.main], executablePath: appInfo.executable })
+  const app = await electron.launch({
+    args: [join(here, '../out/main/index.js')],
+    env: { ...process.env, DASH_USER_DATA: userDataDir }
+  })
   const page = await app.firstWindow()
   return { app, page }
 }

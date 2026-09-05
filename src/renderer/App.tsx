@@ -5,6 +5,7 @@ import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
 import { QuickAdd } from './components/app/QuickAdd'
 import { UndoBar, type UndoNotice } from './components/app/UndoBar'
+import type { TaskAddInput } from '../shared/api'
 
 const useTaskStore = createTaskStore(window.api)
 const useProjectStore = createProjectStore(window.api)
@@ -46,6 +47,13 @@ export default function App(): React.JSX.Element {
   const openTasks = selectedProjectId === null ? [] : selectOpenTasks(tasks, selectedProjectId)
   const error = taskError ?? projectError
 
+  const handleAdd = async (input: TaskAddInput): Promise<void> => {
+    await addTask(input)
+    // On a fresh DB the first add lazily creates Inbox in the main process;
+    // refetch so the sidebar and selection learn it exists.
+    void loadProjects()
+  }
+
   const handleComplete = (id: string): void => {
     void completeTask(id)
     setUndoNotice({
@@ -75,7 +83,7 @@ export default function App(): React.JSX.Element {
           dash<span style={{ color: 'var(--brand-accent)' }}>—</span>
         </span>
         <div className="app-region-no-drag">
-          <QuickAdd add={addTask} projects={projects} defaultProjectId={selectedProjectId} />
+          <QuickAdd add={handleAdd} projects={projects} defaultProjectId={selectedProjectId} />
         </div>
       </header>
       <div className="flex flex-1 overflow-hidden">

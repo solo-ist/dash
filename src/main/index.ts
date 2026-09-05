@@ -6,6 +6,12 @@ import { openDatabase } from './db/open'
 import { migrate } from './db/migrate'
 import { registerIpc } from './ipc'
 
+// Test hook: e2e runs point userData at a temp dir so they never touch the
+// real dash.db. Must run before any app.getPath('userData') call.
+if (process.env.DASH_USER_DATA) {
+  app.setPath('userData', process.env.DASH_USER_DATA)
+}
+
 let quitting = false
 let db: Database
 
