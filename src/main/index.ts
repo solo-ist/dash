@@ -1,8 +1,19 @@
 import { app, shell, BrowserWindow, Menu } from 'electron'
 import { join } from 'path'
+import type Database from 'better-sqlite3'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { openDatabase } from './db/open'
+import { migrate } from './db/migrate'
+import { registerIpc } from './ipc'
+
+// Test hook: e2e runs point userData at a temp dir so they never touch the
+// real dash.db. Must run before any app.getPath('userData') call.
+if (process.env.DASH_USER_DATA) {
+  app.setPath('userData', process.env.DASH_USER_DATA)
+}
 
 let quitting = false
+let db: Database
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -76,6 +87,10 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  db = openDatabase(join(app.getPath('userData'), 'dash.db'))
+  migrate(db)
+  registerIpc(db)
+
   buildMenu()
   createWindow()
 
@@ -88,6 +103,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true
+  db?.close()
 })
 
 app.on('window-all-closed', () => {
