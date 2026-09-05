@@ -30,9 +30,8 @@ All files green. Must include, at minimum:
 - Migration runner: applies to empty DB, sets `user_version`, idempotent on
   re-run.
 
-Baseline 2026-08-31: 3 files, 37 tests, all passing (branch
-`goal/dash-m0-core`). Counts grow; they never shrink without a removal being
-named in a commit message.
+Baseline 2026-09-04: 5 files, 58 tests, all passing (main `416a6cc`). Counts
+grow; they never shrink without a removal being named in a commit message.
 
 ## G2 — Shell renders (manual or scripted, when renderer changes)
 
@@ -58,12 +57,13 @@ The canonical-behavior pins, checkable by test or REPL:
 ## G4 — Persistence e2e (M0 exit gate)
 
 ```
-npm run test:e2e    # Playwright, once e2e/ exists (issue #9)
+npm run test:e2e    # builds, then Playwright drives the real Electron app
 ```
 The M0 definition of done, as an automated flow: launch app → quick-add a task
-with a date token → chip renders → task appears in list → quit → relaunch →
-task still present with parsed date → complete it → completion recorded.
-Until #9 lands, run this by hand before declaring M0.
+with date/priority/label tokens → chips render → task appears in list → quit →
+relaunch → task persists → complete it → row disappears. Runs against an
+isolated temp userData dir (`DASH_USER_DATA`, honored in `src/main/index.ts`)
+— it must never touch the real dash.db. Green since 2026-09-04.
 
 ## G5 — Milestone exit
 

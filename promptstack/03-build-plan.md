@@ -39,8 +39,13 @@ Success: **Angel adds a real task in week one.** Issue slicing (order matters;
 7. `#8` Complete/delete wiring
 8. `#9` Playwright e2e: the persistence gate (G4)
 
-Status 2026-08-31: steps 1–2 implemented and verified on branch
-`goal/dash-m0-core` (goal-loop run, 5 iterations; G0+G1 green), pending merge.
+Status 2026-09-04: **M0 complete on main** (`416a6cc`). Steps 1–2 via
+goal/dash-m0-core (merged 2026-09-01), steps 3–8 via goal/dash-m0-app (5
+iterations 2026-09-01, orchestrator-verified + merged 2026-09-04 — verification
+caught and fixed a first-run Inbox cold-start bug and a broken e2e launcher).
+All eight issues closed. Known deviation: preload shipped per-feature IPC
+channels; restoring the generic surface (architecture §5) is issue `#15`,
+scheduled before the M1 wave.
 
 ## M1 — Organize
 
