@@ -489,3 +489,107 @@ describe('labels', () => {
     expect(allLabels).toHaveLength(1)
   })
 })
+
+describe('task ordering', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openDatabase(':memory:')
+    migrate(db)
+  })
+
+  it('task.add assigns sparse, increasing task_order values within a scope', () => {
+    const t1 = mutate(db, { type: 'task.add', content: 'One' }).tasks![0]
+    const t2 = mutate(db, { type: 'task.add', content: 'Two' }).tasks![0]
+    const t3 = mutate(db, { type: 'task.add', content: 'Three' }).tasks![0]
+
+    expect(t1.task_order).toBe(1024)
+    expect(t2.task_order).toBe(2048)
+    expect(t3.task_order).toBe(3072)
+  })
+
+  it('same-scope move updates only the moved row and listTasks reflects the new order', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const t1 = mutate(db, { type: 'task.add', content: 'One', projectId: project.id }).tasks![0]
+    const t2 = mutate(db, { type: 'task.add', content: 'Two', projectId: project.id }).tasks![0]
+    const t3 = mutate(db, { type: 'task.add', content: 'Three', projectId: project.id }).tasks![0]
+
+    // Move the head task to the tail; the tail has unbounded room so this is
+    // a single-key update, not a rebalance.
+    const moved = mutate(db, { type: 'task.move', id: t1.id, targetIndex: 2 })
+    expect(moved.tasks?.[0].id).toBe(t1.id)
+
+    const ordered = listTasks(db, project.id)
+    expect(ordered.map((t) => t.id)).toEqual([t2.id, t3.id, t1.id])
+
+    // t2 and t3 kept their original keys - only t1's row changed.
+    expect(ordered.find((t) => t.id === t2.id)!.task_order).toBe(2048)
+    expect(ordered.find((t) => t.id === t3.id)!.task_order).toBe(3072)
+  })
+
+  it('moving into a scope with equal legacy task_order values triggers a rebalance with strictly increasing keys', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Legacy' }).projects![0]
+    const t1 = mutate(db, { type: 'task.add', content: 'One', projectId: project.id }).tasks![0]
+    const t2 = mutate(db, { type: 'task.add', content: 'Two', projectId: project.id }).tasks![0]
+    const t3 = mutate(db, { type: 'task.add', content: 'Three', projectId: project.id }).tasks![0]
+
+    // Simulate legacy rows where task_order was never assigned (all zero),
+    // with added_at still reflecting creation order.
+    db.prepare('UPDATE tasks SET task_order = 0, added_at = ? WHERE id = ?').run(
+      '2024-01-01T00:00:00.000Z',
+      t1.id
+    )
+    db.prepare('UPDATE tasks SET task_order = 0, added_at = ? WHERE id = ?').run(
+      '2024-01-01T00:00:01.000Z',
+      t2.id
+    )
+    db.prepare('UPDATE tasks SET task_order = 0, added_at = ? WHERE id = ?').run(
+      '2024-01-01T00:00:02.000Z',
+      t3.id
+    )
+
+    // Move t3 (currently last, by added_at) to the head; equal keys leave no
+    // room for keyBetween, forcing a full rebalance of the scope.
+    mutate(db, { type: 'task.move', id: t3.id, targetIndex: 0 })
+
+    const ordered = listTasks(db, project.id)
+    expect(ordered.map((t) => t.id)).toEqual([t3.id, t1.id, t2.id])
+    expect(ordered[0].task_order).toBeLessThan(ordered[1].task_order)
+    expect(ordered[1].task_order).toBeLessThan(ordered[2].task_order)
+  })
+
+  it('cross-scope move re-parents the task to the destination section and lands at the requested index', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const sectionA = mutate(db, { type: 'section.add', projectId: project.id, name: 'A' }).sections![0]
+    const sectionB = mutate(db, { type: 'section.add', projectId: project.id, name: 'B' }).sections![0]
+
+    const x = mutate(db, {
+      type: 'task.add',
+      content: 'X',
+      projectId: project.id,
+      sectionId: sectionA.id
+    }).tasks![0]
+    const b1 = mutate(db, {
+      type: 'task.add',
+      content: 'B1',
+      projectId: project.id,
+      sectionId: sectionB.id
+    }).tasks![0]
+    const b2 = mutate(db, {
+      type: 'task.add',
+      content: 'B2',
+      projectId: project.id,
+      sectionId: sectionB.id
+    }).tasks![0]
+
+    const moved = mutate(db, { type: 'task.move', id: x.id, targetIndex: 1, sectionId: sectionB.id })
+    expect(moved.tasks?.[0].section_id).toBe(sectionB.id)
+
+    const sectionBTasks = listTasks(db, project.id).filter((t) => t.section_id === sectionB.id)
+    expect(sectionBTasks.map((t) => t.id)).toEqual([b1.id, x.id, b2.id])
+  })
+
+  it('task.move with an unknown id throws', () => {
+    expect(() => mutate(db, { type: 'task.move', id: 'missing', targetIndex: 0 })).toThrow()
+  })
+})

@@ -7,9 +7,36 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
-import { TaskRowItem } from './TaskRowItem'
-import { nestTasksByParent, subtaskCounts } from '../../stores/taskStore'
+import { TaskRowItem, type DropPosition } from './TaskRowItem'
+import { nestTasksByParent, subtaskCounts, type TaskMoveScope } from '../../stores/taskStore'
 import type { LabelRow, SectionRow, TaskRow } from '../../../shared/types'
+
+// Given the ordered ids of a single ordering scope (siblings sharing the
+// same project/section/parent, INCLUDING the dragged task), compute the
+// task.move `targetIndex` for dropping `draggingId` at `position` relative
+// to `targetId`. Mirrors how src/main/mutate.ts's task.move handler
+// interprets targetIndex: an index into the sibling list with the dragged
+// task removed.
+export function computeDropIndex(
+  siblingIds: string[],
+  draggingId: string,
+  targetId: string,
+  position: DropPosition
+): number {
+  const remaining = siblingIds.filter((id) => id !== draggingId)
+  const targetPos = remaining.indexOf(targetId)
+  if (targetPos === -1) return remaining.length
+  return position === 'before' ? targetPos : targetPos + 1
+}
+
+// The ordered ids of the tasks sharing `parentId`/`sectionId` within
+// `tasks` (already in task_order display order) - i.e. one task.move
+// ordering scope as rendered in the list.
+function siblingScopeIds(tasks: TaskRow[], parentId: string | null, sectionId: string | null): string[] {
+  return tasks
+    .filter((task) => task.parent_id === parentId && task.section_id === sectionId)
+    .map((task) => task.id)
+}
 
 export interface TaskListProps {
   tasks: TaskRow[]
@@ -20,6 +47,7 @@ export interface TaskListProps {
   onComplete: (id: string) => void
   onDelete: (id: string) => void
   onSelect?: (id: string) => void
+  onMove?: (id: string, targetIndex: number, scope?: TaskMoveScope) => void
   onAddSection: (name: string) => void
   onRenameSection: (id: string, name: string) => void
   onArchiveSection: (id: string) => void
@@ -102,6 +130,7 @@ export function TaskList({
   onComplete,
   onDelete,
   onSelect,
+  onMove,
   onAddSection,
   onRenameSection,
   onArchiveSection,
@@ -109,12 +138,42 @@ export function TaskList({
 }: TaskListProps): React.JSX.Element {
   const [addingSection, setAddingSection] = useState(false)
   const [newSectionName, setNewSectionName] = useState('')
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ id: string; position: DropPosition } | null>(null)
 
   function commitAddSection(): void {
     const trimmed = newSectionName.trim()
     if (trimmed.length > 0) onAddSection(trimmed)
     setNewSectionName('')
     setAddingSection(false)
+  }
+
+  function handleDragOverRow(id: string, position: DropPosition): void {
+    if (draggingId === null || draggingId === id) return
+    setDropTarget({ id, position })
+  }
+
+  function handleDropRow(targetId: string): void {
+    const activeDraggingId = draggingId
+    const position = dropTarget?.id === targetId ? dropTarget.position : 'before'
+    setDraggingId(null)
+    setDropTarget(null)
+    if (activeDraggingId === null || activeDraggingId === targetId || onMove === undefined) return
+
+    const dragged = tasks.find((task) => task.id === activeDraggingId)
+    const target = tasks.find((task) => task.id === targetId)
+    if (dragged === undefined || target === undefined || dragged.parent_id !== target.parent_id) return
+
+    const siblingIds = siblingScopeIds(tasks, target.parent_id, target.section_id)
+    const targetIndex = computeDropIndex(siblingIds, activeDraggingId, targetId, position)
+    const scope: TaskMoveScope | undefined =
+      dragged.section_id === target.section_id ? undefined : { sectionId: target.section_id }
+    onMove(activeDraggingId, targetIndex, scope)
+  }
+
+  function handleDragEndRow(): void {
+    setDraggingId(null)
+    setDropTarget(null)
   }
 
   const unsectioned = tasks.filter((task) => task.section_id === null)
@@ -139,9 +198,14 @@ export function TaskList({
                 subtaskCount={subtaskCounts(tasks, task.id)}
                 labels={labelsByTaskId[task.id]}
                 selected={task.id === selectedTaskId}
+                dropIndicator={dropTarget?.id === task.id ? dropTarget.position : null}
                 onComplete={onComplete}
                 onDelete={onDelete}
                 onSelect={onSelect}
+                onDragStartRow={setDraggingId}
+                onDragOverRow={handleDragOverRow}
+                onDropRow={handleDropRow}
+                onDragEndRow={handleDragEndRow}
               />
             ))
           ) : (
@@ -154,9 +218,14 @@ export function TaskList({
                   subtaskCount={subtaskCounts(tasks, task.id)}
                   labels={labelsByTaskId[task.id]}
                   selected={task.id === selectedTaskId}
+                  dropIndicator={dropTarget?.id === task.id ? dropTarget.position : null}
                   onComplete={onComplete}
                   onDelete={onDelete}
                   onSelect={onSelect}
+                  onDragStartRow={setDraggingId}
+                  onDragOverRow={handleDragOverRow}
+                  onDropRow={handleDropRow}
+                  onDragEndRow={handleDragEndRow}
                 />
               ))}
               {sections.map((section) => {
@@ -178,9 +247,14 @@ export function TaskList({
                         subtaskCount={subtaskCounts(tasks, task.id)}
                         labels={labelsByTaskId[task.id]}
                         selected={task.id === selectedTaskId}
+                        dropIndicator={dropTarget?.id === task.id ? dropTarget.position : null}
                         onComplete={onComplete}
                         onDelete={onDelete}
                         onSelect={onSelect}
+                        onDragStartRow={setDraggingId}
+                        onDragOverRow={handleDragOverRow}
+                        onDropRow={handleDropRow}
+                        onDragEndRow={handleDragEndRow}
                       />
                     ))}
                   </div>

@@ -132,6 +132,15 @@ const TaskSetLabelsSchema = z.object({
   labelIds: z.array(z.string())
 })
 
+const TaskMoveSchema = z.object({
+  type: z.literal('task.move'),
+  id: z.string(),
+  targetIndex: z.number().int().min(0),
+  projectId: z.string().optional(),
+  sectionId: z.string().nullable().optional(),
+  parentId: z.string().nullable().optional()
+})
+
 export const OpSchema = z.discriminatedUnion('type', [
   TaskAddSchema,
   TaskUpdateSchema,
@@ -140,6 +149,7 @@ export const OpSchema = z.discriminatedUnion('type', [
   TaskUncompleteSchema,
   TaskUndeleteSchema,
   TaskSetLabelsSchema,
+  TaskMoveSchema,
   ProjectAddSchema,
   ProjectUpdateSchema,
   ProjectDeleteSchema,

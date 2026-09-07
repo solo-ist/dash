@@ -1,6 +1,8 @@
 import type Database from 'better-sqlite3'
 import { nanoid } from 'nanoid'
 import { OpSchema, type Op } from '../shared/ops'
+import { insertionKeys, keyAfter } from '../shared/order/keys'
+import { planReorder, type SiblingEntry } from '../shared/order/reorder'
 import type { LabelRow, MutateResult, ProjectRow, SectionRow, TaskLabelRow, TaskRow } from '../shared/types'
 
 function nowIso(): string {
@@ -35,6 +37,40 @@ function requireSectionRow(db: Database, id: string): SectionRow {
   const row = readSectionRow(db, id)
   if (!row || row.deleted_at !== null) throw new Error(`section not found: ${id}`)
   return row
+}
+
+function maxTaskOrderInScope(
+  db: Database,
+  projectId: string,
+  sectionId: string | null,
+  parentId: string | null
+): number | null {
+  const row = db
+    .prepare(
+      `SELECT MAX(task_order) as maxOrder FROM tasks
+       WHERE project_id = ? AND section_id IS ? AND parent_id IS ? AND deleted_at IS NULL`
+    )
+    .get(projectId, sectionId, parentId) as { maxOrder: number | null }
+  return row.maxOrder
+}
+
+function taskOrderScopeSiblings(
+  db: Database,
+  projectId: string,
+  sectionId: string | null,
+  parentId: string | null,
+  excludeId?: string
+): SiblingEntry[] {
+  const rows = db
+    .prepare(
+      `SELECT id, task_order FROM tasks
+       WHERE project_id = ? AND section_id IS ? AND parent_id IS ? AND deleted_at IS NULL
+       ORDER BY task_order, added_at, id`
+    )
+    .all(projectId, sectionId, parentId) as Array<{ id: string; task_order: number }>
+  return rows
+    .filter((row) => row.id !== excludeId)
+    .map((row) => ({ id: row.id, key: row.task_order }))
 }
 
 function readLabelRow(db: Database, id: string): LabelRow | undefined {
@@ -126,13 +162,16 @@ function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
   
   let projectId = op.projectId ?? findOrCreateInboxProjectId(db, now)
   let sectionId = op.sectionId ?? null
-  
+  const parentId = op.parentId ?? null
+
   // Handle subtasks
   if (op.parentId !== undefined && op.parentId !== null) {
     const parent = requireTaskRow(db, op.parentId)
     projectId = parent.project_id
     sectionId = parent.section_id
   }
+
+  const taskOrder = keyAfter(maxTaskOrderInScope(db, projectId, sectionId, parentId))
 
   db.prepare(
     `INSERT INTO tasks (
@@ -152,8 +191,8 @@ function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
     op.recurString ?? null,
     op.recurStrict ? 1 : 0,
     op.durationMin ?? null,
-    op.parentId ?? null,
-    0,
+    parentId,
+    taskOrder,
     now,
     now
   )
@@ -560,6 +599,75 @@ function setTaskLabels(
   return { taskLabels }
 }
 
+function moveTask(db: Database, op: Extract<Op, { type: 'task.move' }>): TaskRow {
+  const task = requireTaskRow(db, op.id)
+  const now = nowIso()
+
+  const targetProjectId = op.projectId ?? task.project_id
+  const targetSectionId = op.sectionId !== undefined ? op.sectionId : task.section_id
+  const targetParentId = op.parentId !== undefined ? op.parentId : task.parent_id
+
+  if (op.projectId !== undefined) requireProjectRow(db, op.projectId)
+  if (op.sectionId !== undefined && op.sectionId !== null) requireSectionRow(db, op.sectionId)
+
+  if (op.parentId !== undefined && op.parentId !== null && op.parentId !== task.parent_id) {
+    if (op.parentId === op.id) throw new Error('task cannot be its own parent')
+    const parent = requireTaskRow(db, op.parentId)
+
+    // Cycle guard - walk up the parent chain
+    let cur = parent.parent_id
+    while (cur !== null) {
+      if (cur === op.id) {
+        throw new Error('parent change would create a cycle')
+      }
+      const parentRow = readTaskRow(db, cur)
+      cur = parentRow?.parent_id ?? null
+    }
+  }
+
+  const sameScope =
+    targetProjectId === task.project_id &&
+    targetSectionId === task.section_id &&
+    targetParentId === task.parent_id
+
+  if (sameScope) {
+    const siblings = taskOrderScopeSiblings(db, task.project_id, task.section_id, task.parent_id)
+    const assignments = planReorder(siblings, op.id, op.targetIndex)
+    for (const assignment of assignments) {
+      db.prepare('UPDATE tasks SET task_order = ?, updated_at = ? WHERE id = ?').run(
+        assignment.key,
+        now,
+        assignment.id
+      )
+    }
+  } else {
+    const destSiblings = taskOrderScopeSiblings(db, targetProjectId, targetSectionId, targetParentId, op.id)
+    const clampedIndex = Math.max(0, Math.min(op.targetIndex, destSiblings.length))
+    const result = insertionKeys(
+      destSiblings.map((sibling) => sibling.key),
+      clampedIndex
+    )
+
+    if ('rebalanced' in result) {
+      for (let i = 0; i < destSiblings.length; i++) {
+        const finalIndex = i < clampedIndex ? i : i + 1
+        db.prepare('UPDATE tasks SET task_order = ?, updated_at = ? WHERE id = ?').run(
+          result.rebalanced[finalIndex],
+          now,
+          destSiblings[i].id
+        )
+      }
+    }
+
+    db.prepare(
+      `UPDATE tasks SET project_id = ?, section_id = ?, parent_id = ?, task_order = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(targetProjectId, targetSectionId, targetParentId, result.key, now, op.id)
+  }
+
+  return requireTaskRow(db, op.id)
+}
+
 function applyOp(db: Database, op: Op): MutateResult {
   switch (op.type) {
     case 'task.add': {
@@ -584,6 +692,8 @@ function applyOp(db: Database, op: Op): MutateResult {
       const { taskLabels } = setTaskLabels(db, op)
       return { taskLabels }
     }
+    case 'task.move':
+      return { tasks: [moveTask(db, op)] }
     case 'project.add':
       return { projects: [addProject(db, op)] }
     case 'project.update':

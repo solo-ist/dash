@@ -10,10 +10,14 @@ export function getTask(db: Database, id: string): TaskRow | undefined {
 export function listTasks(db: Database, projectId?: string): TaskRow[] {
   if (projectId !== undefined) {
     return db
-      .prepare('SELECT * FROM tasks WHERE project_id = ? AND deleted_at IS NULL')
+      .prepare(
+        'SELECT * FROM tasks WHERE project_id = ? AND deleted_at IS NULL ORDER BY task_order, added_at, id'
+      )
       .all(projectId) as TaskRow[]
   }
-  return db.prepare('SELECT * FROM tasks WHERE deleted_at IS NULL').all() as TaskRow[]
+  return db
+    .prepare('SELECT * FROM tasks WHERE deleted_at IS NULL ORDER BY task_order, added_at, id')
+    .all() as TaskRow[]
 }
 
 export function getProject(db: Database, id: string): ProjectRow | undefined {

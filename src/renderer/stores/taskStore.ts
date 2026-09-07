@@ -7,6 +7,7 @@ import type { Op } from '../../shared/ops'
 export type TaskStore = UseBoundStore<StoreApi<TaskState>>
 
 export type TaskUpdatePatch = Omit<Extract<Op, { type: 'task.update' }>, 'type' | 'id'>
+export type TaskMoveScope = Omit<Extract<Op, { type: 'task.move' }>, 'type' | 'id' | 'targetIndex'>
 
 export interface TaskState {
   tasks: TaskRow[]
@@ -16,6 +17,7 @@ export interface TaskState {
   add: (input: TaskAddInput) => Promise<void>
   addSubtask: (parentId: string, content: string) => Promise<void>
   update: (id: string, patch: TaskUpdatePatch) => Promise<void>
+  moveTask: (id: string, targetIndex: number, scope?: TaskMoveScope) => Promise<void>
   complete: (id: string) => Promise<void>
   uncomplete: (id: string) => Promise<void>
   remove: (id: string) => Promise<void>
@@ -143,6 +145,23 @@ export function createTaskStore(api: DashApi): TaskStore {
         }))
       }
     },
+    moveTask: async (id: string, targetIndex: number, scope?: TaskMoveScope) => {
+      const prevState = get()
+      const taskToMove = prevState.tasks.find(task => task.id === id)
+
+      if (!taskToMove) return
+
+      try {
+        const result = await api.mutate({ type: 'task.move', id, targetIndex, ...scope })
+        const movedTask = requireTask(result)
+        set((state) => ({
+          tasks: state.tasks.map(task => task.id === id ? movedTask : task),
+          error: null
+        }))
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
     complete: async (id: string) => {
       const prevState = get()
       const taskToComplete = prevState.tasks.find(task => task.id === id)
@@ -244,16 +263,25 @@ export function createTaskStore(api: DashApi): TaskStore {
   }))
 }
 
+// Mirrors the main process's `ORDER BY task_order, added_at, id` so the
+// client never fights the sparse sort keys assigned by task.add/task.move.
+function compareTaskOrder(a: TaskRow, b: TaskRow): number {
+  if (a.task_order !== b.task_order) return a.task_order - b.task_order
+  const addedDiff = new Date(a.added_at).getTime() - new Date(b.added_at).getTime()
+  if (addedDiff !== 0) return addedDiff
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
 export function selectOpenTasks(tasks: TaskRow[], projectId: string): TaskRow[] {
   return tasks
     .filter(task => task.checked === 0 && task.deleted_at === null && task.project_id === projectId)
-    .sort((a, b) => new Date(a.added_at).getTime() - new Date(b.added_at).getTime())
+    .sort(compareTaskOrder)
 }
 
 export function selectAllOpenTasks(tasks: TaskRow[]): TaskRow[] {
   return tasks
     .filter(task => task.checked === 0 && task.deleted_at === null)
-    .sort((a, b) => new Date(a.added_at).getTime() - new Date(b.added_at).getTime())
+    .sort(compareTaskOrder)
 }
 
 export interface NestedTask {

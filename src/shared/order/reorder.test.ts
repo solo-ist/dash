@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { planReorder } from './reorder';
-import { ORDER_GAP } from './keys';
 
 describe('planReorder', () => {
   it('should move middle item to head among keys [1024, 2048, 3072]: moving id at key 3072 to index 0 → single assignment; keyBetween(null, 1024) returns null per keys.ts (after <= ORDER_GAP), so this actually rebalances → expect 3 assignments with keys [1024, 2048, 3072] in the new id order', () => {
