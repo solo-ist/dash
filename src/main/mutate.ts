@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import { nanoid } from 'nanoid'
 import { OpSchema, type Op } from '../shared/ops'
-import type { MutateResult, ProjectRow, TaskRow } from '../shared/types'
+import type { MutateResult, ProjectRow, SectionRow, TaskRow } from '../shared/types'
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -15,6 +15,10 @@ function readProjectRow(db: Database, id: string): ProjectRow | undefined {
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined
 }
 
+function readSectionRow(db: Database, id: string): SectionRow | undefined {
+  return db.prepare('SELECT * FROM sections WHERE id = ?').get(id) as SectionRow | undefined
+}
+
 function requireTaskRow(db: Database, id: string): TaskRow {
   const row = readTaskRow(db, id)
   if (!row || row.deleted_at !== null) throw new Error(`task not found: ${id}`)
@@ -24,6 +28,12 @@ function requireTaskRow(db: Database, id: string): TaskRow {
 function requireProjectRow(db: Database, id: string): ProjectRow {
   const row = readProjectRow(db, id)
   if (!row || row.deleted_at !== null) throw new Error(`project not found: ${id}`)
+  return row
+}
+
+function requireSectionRow(db: Database, id: string): SectionRow {
+  const row = readSectionRow(db, id)
+  if (!row || row.deleted_at !== null) throw new Error(`section not found: ${id}`)
   return row
 }
 
@@ -198,6 +208,91 @@ function deleteProject(db: Database, op: Extract<Op, { type: 'project.delete' }>
   return row
 }
 
+function archiveProject(db: Database, op: Extract<Op, { type: 'project.archive' }>): ProjectRow {
+  requireProjectRow(db, op.id)
+  const now = nowIso()
+  db.prepare('UPDATE projects SET archived_at = ?, updated_at = ? WHERE id = ?').run(
+    now,
+    now,
+    op.id
+  )
+  return requireProjectRow(db, op.id)
+}
+
+function unarchiveProject(db: Database, op: Extract<Op, { type: 'project.unarchive' }>): ProjectRow {
+  requireProjectRow(db, op.id)
+  const now = nowIso()
+  db.prepare('UPDATE projects SET archived_at = NULL, updated_at = ? WHERE id = ?').run(
+    now,
+    op.id
+  )
+  return requireProjectRow(db, op.id)
+}
+
+function addSection(db: Database, op: Extract<Op, { type: 'section.add' }>): SectionRow {
+  requireProjectRow(db, op.projectId)
+  const now = nowIso()
+  const id = nanoid(21)
+
+  db.prepare(
+    `INSERT INTO sections (id, project_id, name, updated_at)
+     VALUES (?, ?, ?, ?)`
+  ).run(id, op.projectId, op.name, now)
+
+  return requireSectionRow(db, id)
+}
+
+function updateSection(db: Database, op: Extract<Op, { type: 'section.update' }>): SectionRow {
+  requireSectionRow(db, op.id)
+  const now = nowIso()
+
+  const fields: Array<[string, unknown]> = []
+  if (op.name !== undefined) fields.push(['name', op.name])
+  fields.push(['updated_at', now])
+
+  const setClause = fields.map(([column]) => `${column} = ?`).join(', ')
+  const values = fields.map(([, value]) => value)
+
+  db.prepare(`UPDATE sections SET ${setClause} WHERE id = ?`).run(...values, op.id)
+
+  return requireSectionRow(db, op.id)
+}
+
+function deleteSection(db: Database, op: Extract<Op, { type: 'section.delete' }>): SectionRow {
+  requireSectionRow(db, op.id)
+  const now = nowIso()
+  db.prepare('UPDATE sections SET deleted_at = ?, updated_at = ? WHERE id = ?').run(
+    now,
+    now,
+    op.id
+  )
+
+  const row = readSectionRow(db, op.id)
+  if (!row) throw new Error(`section not found after delete: ${op.id}`)
+  return row
+}
+
+function archiveSection(db: Database, op: Extract<Op, { type: 'section.archive' }>): SectionRow {
+  requireSectionRow(db, op.id)
+  const now = nowIso()
+  db.prepare('UPDATE sections SET archived_at = ?, updated_at = ? WHERE id = ?').run(
+    now,
+    now,
+    op.id
+  )
+  return requireSectionRow(db, op.id)
+}
+
+function unarchiveSection(db: Database, op: Extract<Op, { type: 'section.unarchive' }>): SectionRow {
+  requireSectionRow(db, op.id)
+  const now = nowIso()
+  db.prepare('UPDATE sections SET archived_at = NULL, updated_at = ? WHERE id = ?').run(
+    now,
+    op.id
+  )
+  return requireSectionRow(db, op.id)
+}
+
 function applyOp(db: Database, op: Op): MutateResult {
   switch (op.type) {
     case 'task.add':
@@ -218,6 +313,20 @@ function applyOp(db: Database, op: Op): MutateResult {
       return { projects: [updateProject(db, op)] }
     case 'project.delete':
       return { projects: [deleteProject(db, op)] }
+    case 'project.archive':
+      return { projects: [archiveProject(db, op)] }
+    case 'project.unarchive':
+      return { projects: [unarchiveProject(db, op)] }
+    case 'section.add':
+      return { sections: [addSection(db, op)] }
+    case 'section.update':
+      return { sections: [updateSection(db, op)] }
+    case 'section.delete':
+      return { sections: [deleteSection(db, op)] }
+    case 'section.archive':
+      return { sections: [archiveSection(db, op)] }
+    case 'section.unarchive':
+      return { sections: [unarchiveSection(db, op)] }
     default: {
       const exhaustive: never = op
       throw new Error(`mutate: unknown op ${JSON.stringify(exhaustive)}`)

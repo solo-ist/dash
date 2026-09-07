@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { createTaskStore, selectOpenTasks } from './stores/taskStore'
-import { createProjectStore, selectInbox, selectFavorites, selectRegularProjects } from './stores/projectStore'
+import {
+  createProjectStore,
+  selectInbox,
+  selectFavorites,
+  selectRegularProjects,
+  selectArchivedProjects
+} from './stores/projectStore'
+import { createSectionStore, selectSectionsForProject } from './stores/sectionStore'
 import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
 import { QuickAdd } from './components/app/QuickAdd'
@@ -9,6 +16,7 @@ import type { TaskAddInput } from '../shared/api'
 
 const useTaskStore = createTaskStore(window.api)
 const useProjectStore = createProjectStore(window.api)
+const useSectionStore = createSectionStore(window.api)
 
 export default function App(): React.JSX.Element {
   const tasks = useTaskStore((s) => s.tasks)
@@ -26,17 +34,32 @@ export default function App(): React.JSX.Element {
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const projectError = useProjectStore((s) => s.error)
   const loadProjects = useProjectStore((s) => s.load)
+  const addProject = useProjectStore((s) => s.add)
+  const renameProject = useProjectStore((s) => s.rename)
+  const toggleProjectFavorite = useProjectStore((s) => s.toggleFavorite)
+  const archiveProject = useProjectStore((s) => s.archive)
+  const unarchiveProject = useProjectStore((s) => s.unarchive)
+  const removeProject = useProjectStore((s) => s.remove)
+
+  const sections = useSectionStore((s) => s.sections)
+  const loadSections = useSectionStore((s) => s.load)
+  const addSection = useSectionStore((s) => s.add)
+  const renameSection = useSectionStore((s) => s.rename)
+  const archiveSection = useSectionStore((s) => s.archive)
+  const removeSection = useSectionStore((s) => s.remove)
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
 
   useEffect(() => {
     void loadTasks()
     void loadProjects()
-  }, [loadTasks, loadProjects])
+    void loadSections()
+  }, [loadTasks, loadProjects, loadSections])
 
   const inbox = selectInbox(projects)
   const favorites = selectFavorites(projects)
   const regularProjects = selectRegularProjects(projects)
+  const archivedProjects = selectArchivedProjects(projects)
 
   useEffect(() => {
     if (selectedProjectId === null && projectsLoaded && inbox !== undefined) {
@@ -45,6 +68,7 @@ export default function App(): React.JSX.Element {
   }, [selectedProjectId, projectsLoaded, inbox])
 
   const openTasks = selectedProjectId === null ? [] : selectOpenTasks(tasks, selectedProjectId)
+  const projectSections = selectedProjectId === null ? [] : selectSectionsForProject(sections, selectedProjectId)
   const error = taskError ?? projectError
 
   const handleAdd = async (input: TaskAddInput): Promise<void> => {
@@ -91,12 +115,31 @@ export default function App(): React.JSX.Element {
           inbox={inbox}
           favorites={favorites}
           projects={regularProjects}
+          archivedProjects={archivedProjects}
           selectedProjectId={selectedProjectId}
           onSelect={setSelectedProjectId}
+          onAddProject={(input) => void addProject(input)}
+          onRenameProject={(id, name) => void renameProject(id, name)}
+          onToggleFavorite={(id) => void toggleProjectFavorite(id)}
+          onArchiveProject={(id) => void archiveProject(id)}
+          onUnarchiveProject={(id) => void unarchiveProject(id)}
+          onDeleteProject={(id) => void removeProject(id)}
         />
         <main className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden">
-            <TaskList tasks={openTasks} error={error} onComplete={handleComplete} onDelete={handleDelete} />
+            <TaskList
+              tasks={openTasks}
+              sections={projectSections}
+              error={error}
+              onComplete={handleComplete}
+              onDelete={handleDelete}
+              onAddSection={(name) => {
+                if (selectedProjectId !== null) void addSection({ projectId: selectedProjectId, name })
+              }}
+              onRenameSection={(id, name) => void renameSection(id, name)}
+              onArchiveSection={(id) => void archiveSection(id)}
+              onDeleteSection={(id) => void removeSection(id)}
+            />
           </div>
           <UndoBar notice={undoNotice} onDismiss={() => setUndoNotice(null)} />
         </main>

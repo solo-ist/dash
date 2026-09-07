@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { ProjectRow, TaskRow } from '../shared/types'
+import type { ProjectRow, SectionRow, TaskRow } from '../shared/types'
 
 export function getTask(db: Database, id: string): TaskRow | undefined {
   return db
@@ -24,4 +24,17 @@ export function getProject(db: Database, id: string): ProjectRow | undefined {
 
 export function listProjects(db: Database): ProjectRow[] {
   return db.prepare('SELECT * FROM projects WHERE deleted_at IS NULL').all() as ProjectRow[]
+}
+
+export function listSections(db: Database, projectId?: string): SectionRow[] {
+  if (projectId !== undefined) {
+    return db
+      .prepare(
+        'SELECT * FROM sections WHERE project_id = ? AND deleted_at IS NULL ORDER BY section_order'
+      )
+      .all(projectId) as SectionRow[]
+  }
+  return db
+    .prepare('SELECT * FROM sections WHERE deleted_at IS NULL ORDER BY section_order')
+    .all() as SectionRow[]
 }

@@ -118,72 +118,55 @@ describe('insertionKeys', () => {
     expect(result).toEqual({ key: 2048 });
   });
 
-  it('should handle head insertion without room', () => {
+  it('should rebalance on head insertion without room', () => {
     const result = insertionKeys([1024], 0);
-    expect((result as any).rebalanced).toBeDefined();
-    expect((result as any).key).toBe(1024);
-    expect((result as any).rebalanced).toEqual([1024]);
+    expect(result).toEqual({ rebalanced: [1024, 2048], key: 1024 });
   });
 
-  it('should handle middle insertion without room', () => {
-    const result = insertionKeys([1024, 2048], 1);
-    expect((result as any).rebalanced).toBeDefined();
-    expect((result as any).key).toBe(1024);
-    expect((result as any).rebalanced).toEqual([1024, 2048, 3072]);
+  it('should rebalance on middle insertion without room', () => {
+    const result = insertionKeys([1024, 1025], 1);
+    expect(result).toEqual({ rebalanced: [1024, 2048, 3072], key: 2048 });
   });
 
-  it('should handle tail insertion without room', () => {
-    const result = insertionKeys([1024], 1);
-    expect((result as any).rebalanced).toBeDefined();
-    expect((result as any).key).toBe(2048);
-    expect((result as any).rebalanced).toEqual([1024, 2048]);
+  it('should never rebalance on tail insertion', () => {
+    expect(insertionKeys([1024, 1025], 2)).toEqual({ key: 2049 });
   });
 
-  it('should ensure rebalanced keys are strictly increasing', () => {
-    const result = insertionKeys([1024, 2048], 1);
-    const rebalanced = (result as any).rebalanced;
-    for (let i = 1; i < rebalanced.length; i++) {
-      expect(rebalanced[i]).toBeGreaterThan(rebalanced[i - 1]);
+  it('should keep rebalanced keys strictly increasing', () => {
+    const result = insertionKeys([1024, 1025], 1);
+    if (!('rebalanced' in result)) throw new Error('expected rebalance');
+    for (let i = 1; i < result.rebalanced.length; i++) {
+      expect(result.rebalanced[i]).toBeGreaterThan(result.rebalanced[i - 1]);
     }
   });
 
-  it('should ensure keys remain positive integers', () => {
+  it('should keep keys positive integers', () => {
     const result = insertionKeys([1024, 2048, 3072], 1);
-    if ('key' in result) {
-      expect(result.key).toBeGreaterThan(0);
-      expect(Number.isInteger(result.key)).toBe(true);
-    } else {
-      expect(result.rebalanced).toBeDefined();
+    if ('rebalanced' in result) {
       for (const key of result.rebalanced) {
         expect(key).toBeGreaterThan(0);
         expect(Number.isInteger(key)).toBe(true);
       }
+    } else {
+      expect(result.key).toBeGreaterThan(0);
+      expect(Number.isInteger(result.key)).toBe(true);
     }
   });
 
-  it('should handle stress test of repeated worst-case insertions', () => {
+  it('should survive repeated worst-case head insertions', () => {
     let keys = [1024];
-    const insertions = 50;
-    
-    for (let i = 0; i < insertions; i++) {
-      const result = insertionKeys(keys, 0); // Always insert at head
-      if ('key' in result) {
-        keys = [result.key, ...keys];
-      } else {
-        keys = result.rebalanced;
-      }
-      
-      // Verify that keys are still strictly increasing
+    for (let i = 0; i < 50; i++) {
+      const result = insertionKeys(keys, 0);
+      keys = 'rebalanced' in result ? result.rebalanced : [result.key, ...keys];
       for (let j = 1; j < keys.length; j++) {
         expect(keys[j]).toBeGreaterThan(keys[j - 1]);
       }
-      
-      // Verify all keys are positive integers
       for (const key of keys) {
         expect(key).toBeGreaterThan(0);
         expect(Number.isInteger(key)).toBe(true);
       }
     }
+    expect(keys.length).toBe(51);
   });
 
   it('should throw for out of bounds index', () => {

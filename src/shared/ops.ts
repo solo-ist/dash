@@ -67,6 +67,43 @@ const ProjectDeleteSchema = z.object({
   id: z.string()
 })
 
+const ProjectArchiveSchema = z.object({
+  type: z.literal('project.archive'),
+  id: z.string()
+})
+
+const ProjectUnarchiveSchema = z.object({
+  type: z.literal('project.unarchive'),
+  id: z.string()
+})
+
+const SectionAddSchema = z.object({
+  type: z.literal('section.add'),
+  projectId: z.string(),
+  name: z.string().min(1)
+})
+
+const SectionUpdateSchema = z.object({
+  type: z.literal('section.update'),
+  id: z.string(),
+  name: z.string().min(1).optional()
+})
+
+const SectionDeleteSchema = z.object({
+  type: z.literal('section.delete'),
+  id: z.string()
+})
+
+const SectionArchiveSchema = z.object({
+  type: z.literal('section.archive'),
+  id: z.string()
+})
+
+const SectionUnarchiveSchema = z.object({
+  type: z.literal('section.unarchive'),
+  id: z.string()
+})
+
 export const OpSchema = z.discriminatedUnion('type', [
   TaskAddSchema,
   TaskUpdateSchema,
@@ -76,7 +113,14 @@ export const OpSchema = z.discriminatedUnion('type', [
   TaskUndeleteSchema,
   ProjectAddSchema,
   ProjectUpdateSchema,
-  ProjectDeleteSchema
+  ProjectDeleteSchema,
+  ProjectArchiveSchema,
+  ProjectUnarchiveSchema,
+  SectionAddSchema,
+  SectionUpdateSchema,
+  SectionDeleteSchema,
+  SectionArchiveSchema,
+  SectionUnarchiveSchema
 ])
 
 export type Op = z.infer<typeof OpSchema>

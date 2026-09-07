@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3'
 import { openDatabase } from './db/open'
 import { migrate } from './db/migrate'
 import { mutate } from './mutate'
-import { getProject, getTask, listProjects, listTasks } from './queries'
+import { getProject, getTask, listProjects, listSections, listTasks } from './queries'
 
 describe('mutate', () => {
   let db: Database
@@ -124,5 +124,96 @@ describe('mutate', () => {
       .prepare("SELECT rowid FROM task_fts WHERE task_fts MATCH 'golden'")
       .all() as Array<{ rowid: number }>
     expect(hits.length).toBeGreaterThan(0)
+  })
+
+  it('archives and unarchives a project', () => {
+    const added = mutate(db, { type: 'project.add', name: 'Work' })
+    const id = added.projects![0].id
+
+    const archived = mutate(db, { type: 'project.archive', id })
+    expect(archived.projects?.[0].archived_at).toBeTruthy()
+
+    const unarchived = mutate(db, { type: 'project.unarchive', id })
+    expect(unarchived.projects?.[0].archived_at).toBeNull()
+  })
+
+  it('adds a section under a project and lists it', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+
+    const result = mutate(db, { type: 'section.add', projectId: project.id, name: 'To triage' })
+    const section = result.sections?.[0]
+    expect(section?.name).toBe('To triage')
+    expect(section?.project_id).toBe(project.id)
+
+    const sections = listSections(db, project.id)
+    expect(sections.map((s) => s.id)).toContain(section?.id)
+  })
+
+  it('rejects adding a section to a nonexistent project', () => {
+    expect(() =>
+      mutate(db, { type: 'section.add', projectId: 'missing', name: 'Ghost' })
+    ).toThrow()
+  })
+
+  it('updates a section name', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, {
+      type: 'section.add',
+      projectId: project.id,
+      name: 'Draft'
+    }).sections![0]
+
+    const updated = mutate(db, { type: 'section.update', id: section.id, name: 'Final' })
+    expect(updated.sections?.[0].name).toBe('Final')
+  })
+
+  it('tombstones a deleted section instead of removing the row', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, {
+      type: 'section.add',
+      projectId: project.id,
+      name: 'Temp'
+    }).sections![0]
+
+    mutate(db, { type: 'section.delete', id: section.id })
+
+    expect(listSections(db, project.id).map((s) => s.id)).not.toContain(section.id)
+
+    const raw = db.prepare('SELECT deleted_at FROM sections WHERE id = ?').get(section.id) as
+      | { deleted_at: string | null }
+      | undefined
+    expect(raw?.deleted_at).toBeTruthy()
+  })
+
+  it('archives and unarchives a section', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, {
+      type: 'section.add',
+      projectId: project.id,
+      name: 'Someday'
+    }).sections![0]
+
+    const archived = mutate(db, { type: 'section.archive', id: section.id })
+    expect(archived.sections?.[0].archived_at).toBeTruthy()
+    // Archived sections stay live (not tombstoned) and still list.
+    expect(listSections(db, project.id).map((s) => s.id)).toContain(section.id)
+
+    const unarchived = mutate(db, { type: 'section.unarchive', id: section.id })
+    expect(unarchived.sections?.[0].archived_at).toBeNull()
+  })
+
+  it('listSections filters by project and orders by section_order', () => {
+    const projectA = mutate(db, { type: 'project.add', name: 'A' }).projects![0]
+    const projectB = mutate(db, { type: 'project.add', name: 'B' }).projects![0]
+
+    mutate(db, { type: 'section.add', projectId: projectA.id, name: 'A1' })
+    mutate(db, { type: 'section.add', projectId: projectB.id, name: 'B1' })
+
+    const sectionsA = listSections(db, projectA.id)
+    expect(sectionsA).toHaveLength(1)
+    expect(sectionsA[0].name).toBe('A1')
+
+    const allSections = listSections(db)
+    expect(allSections.length).toBeGreaterThanOrEqual(2)
   })
 })
