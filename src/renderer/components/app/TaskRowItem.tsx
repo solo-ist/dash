@@ -21,19 +21,37 @@ function priorityRing(priority: number): string {
 export interface TaskRowItemProps {
   task: TaskRow
   labels?: string[]
+  selected?: boolean
   onComplete: (id: string) => void
   onDelete: (id: string) => void
+  onSelect?: (id: string) => void
 }
 
-export function TaskRowItem({ task, labels = [], onComplete, onDelete }: TaskRowItemProps): React.JSX.Element {
+export function TaskRowItem({
+  task,
+  labels = [],
+  selected = false,
+  onComplete,
+  onDelete,
+  onSelect
+}: TaskRowItemProps): React.JSX.Element {
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
+        <div
+          onClick={() => onSelect?.(task.id)}
+          className={cn(
+            'flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0',
+            selected && 'bg-accent'
+          )}
+        >
           <button
             type="button"
             aria-label="Complete task"
-            onClick={() => onComplete(task.id)}
+            onClick={(event) => {
+              event.stopPropagation()
+              onComplete(task.id)
+            }}
             className={cn(
               'h-4 w-4 shrink-0 rounded-full border-2 transition-colors hover:bg-accent',
               priorityRing(task.priority)

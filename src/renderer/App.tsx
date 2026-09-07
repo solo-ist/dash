@@ -10,6 +10,7 @@ import {
 import { createSectionStore, selectSectionsForProject } from './stores/sectionStore'
 import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
+import { TaskDetailPanel } from './components/app/TaskDetailPanel'
 import { QuickAdd } from './components/app/QuickAdd'
 import { UndoBar, type UndoNotice } from './components/app/UndoBar'
 import type { TaskAddInput } from '../shared/api'
@@ -27,6 +28,7 @@ export default function App(): React.JSX.Element {
   const removeTask = useTaskStore((s) => s.remove)
   const undeleteTask = useTaskStore((s) => s.undelete)
   const addTask = useTaskStore((s) => s.add)
+  const updateTask = useTaskStore((s) => s.update)
 
   const [undoNotice, setUndoNotice] = useState<UndoNotice | null>(null)
 
@@ -49,6 +51,7 @@ export default function App(): React.JSX.Element {
   const removeSection = useSectionStore((s) => s.remove)
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
 
   useEffect(() => {
     void loadTasks()
@@ -70,6 +73,28 @@ export default function App(): React.JSX.Element {
   const openTasks = selectedProjectId === null ? [] : selectOpenTasks(tasks, selectedProjectId)
   const projectSections = selectedProjectId === null ? [] : selectSectionsForProject(sections, selectedProjectId)
   const error = taskError ?? projectError
+
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null
+
+  useEffect(() => {
+    if (selectedTaskId !== null && (selectedTask === null || selectedTask.checked === 1)) {
+      setSelectedTaskId(null)
+    }
+  }, [selectedTaskId, selectedTask])
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (selectedTaskId === null) return
+      const target = event.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+      if (event.key === '1' || event.key === '2' || event.key === '3' || event.key === '4') {
+        void updateTask(selectedTaskId, { priority: Number(event.key) as 1 | 2 | 3 | 4 })
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedTaskId, updateTask])
 
   const handleAdd = async (input: TaskAddInput): Promise<void> => {
     await addTask(input)
@@ -126,20 +151,35 @@ export default function App(): React.JSX.Element {
           onDeleteProject={(id) => void removeProject(id)}
         />
         <main className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <TaskList
-              tasks={openTasks}
-              sections={projectSections}
-              error={error}
-              onComplete={handleComplete}
-              onDelete={handleDelete}
-              onAddSection={(name) => {
-                if (selectedProjectId !== null) void addSection({ projectId: selectedProjectId, name })
-              }}
-              onRenameSection={(id, name) => void renameSection(id, name)}
-              onArchiveSection={(id) => void archiveSection(id)}
-              onDeleteSection={(id) => void removeSection(id)}
-            />
+          <div className="flex flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden">
+              <TaskList
+                tasks={openTasks}
+                sections={projectSections}
+                error={error}
+                selectedTaskId={selectedTaskId}
+                onComplete={handleComplete}
+                onDelete={handleDelete}
+                onSelect={(id) => setSelectedTaskId((current) => (current === id ? null : id))}
+                onAddSection={(name) => {
+                  if (selectedProjectId !== null) void addSection({ projectId: selectedProjectId, name })
+                }}
+                onRenameSection={(id, name) => void renameSection(id, name)}
+                onArchiveSection={(id) => void archiveSection(id)}
+                onDeleteSection={(id) => void removeSection(id)}
+              />
+            </div>
+            {selectedTask !== null && (
+              <TaskDetailPanel
+                task={selectedTask}
+                projectName={projects.find((project) => project.id === selectedTask.project_id)?.name ?? ''}
+                sectionName={sections.find((section) => section.id === selectedTask.section_id)?.name ?? null}
+                onUpdate={(patch) => void updateTask(selectedTask.id, patch)}
+                onClose={() => setSelectedTaskId(null)}
+                onComplete={handleComplete}
+                onDelete={handleDelete}
+              />
+            )}
           </div>
           <UndoBar notice={undoNotice} onDismiss={() => setUndoNotice(null)} />
         </main>

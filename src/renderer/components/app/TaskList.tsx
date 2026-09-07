@@ -14,8 +14,10 @@ export interface TaskListProps {
   tasks: TaskRow[]
   sections: SectionRow[]
   error: string | null
+  selectedTaskId?: string | null
   onComplete: (id: string) => void
   onDelete: (id: string) => void
+  onSelect?: (id: string) => void
   onAddSection: (name: string) => void
   onRenameSection: (id: string, name: string) => void
   onArchiveSection: (id: string) => void
@@ -93,8 +95,10 @@ export function TaskList({
   tasks,
   sections,
   error,
+  selectedTaskId = null,
   onComplete,
   onDelete,
+  onSelect,
   onAddSection,
   onRenameSection,
   onArchiveSection,
@@ -125,12 +129,26 @@ export function TaskList({
         <ScrollArea className="flex-1">
           {sections.length === 0 ? (
             tasks.map((task) => (
-              <TaskRowItem key={task.id} task={task} onComplete={onComplete} onDelete={onDelete} />
+              <TaskRowItem
+                key={task.id}
+                task={task}
+                selected={task.id === selectedTaskId}
+                onComplete={onComplete}
+                onDelete={onDelete}
+                onSelect={onSelect}
+              />
             ))
           ) : (
             <>
               {unsectioned.map((task) => (
-                <TaskRowItem key={task.id} task={task} onComplete={onComplete} onDelete={onDelete} />
+                <TaskRowItem
+                  key={task.id}
+                  task={task}
+                  selected={task.id === selectedTaskId}
+                  onComplete={onComplete}
+                  onDelete={onDelete}
+                  onSelect={onSelect}
+                />
               ))}
               {sections.map((section) => {
                 const sectionTasks = tasks.filter((task) => task.section_id === section.id)
@@ -144,7 +162,14 @@ export function TaskList({
                       onDelete={onDeleteSection}
                     />
                     {sectionTasks.map((task) => (
-                      <TaskRowItem key={task.id} task={task} onComplete={onComplete} onDelete={onDelete} />
+                      <TaskRowItem
+                        key={task.id}
+                        task={task}
+                        selected={task.id === selectedTaskId}
+                        onComplete={onComplete}
+                        onDelete={onDelete}
+                        onSelect={onSelect}
+                      />
                     ))}
                   </div>
                 )

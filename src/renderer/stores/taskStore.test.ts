@@ -160,6 +160,39 @@ describe('taskStore', () => {
     expect(mutate).toHaveBeenCalled()
   })
 
+  it('update replaces the row with the server response on success', async () => {
+    const initialTask = createTaskRow({ id: 'task-1', content: 'Old content', priority: 4 })
+    const updatedTask = createTaskRow({ id: 'task-1', content: 'New content', priority: 2 })
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [updatedTask] })
+
+    const store = createTaskStore(api)
+    store.setState({ tasks: [initialTask] })
+
+    await store.getState().update('task-1', { content: 'New content', priority: 2 })
+
+    const state = store.getState()
+    expect(state.tasks[0].content).toBe('New content')
+    expect(state.tasks[0].priority).toBe(2)
+    expect(state.error).toBeNull()
+    expect(mutate).toHaveBeenCalledWith({ type: 'task.update', id: 'task-1', content: 'New content', priority: 2 })
+  })
+
+  it('update rolls back to the original row and sets error on failure', async () => {
+    const initialTask = createTaskRow({ id: 'task-1', content: 'Old content', priority: 4 })
+    const { api, mutate } = makeApi()
+    mutate.mockRejectedValue(new Error('Failed to update'))
+
+    const store = createTaskStore(api)
+    store.setState({ tasks: [initialTask] })
+
+    await store.getState().update('task-1', { content: 'New content', priority: 2 })
+
+    const state = store.getState()
+    expect(state.tasks[0]).toEqual(initialTask)
+    expect(state.error).toBe('Failed to update')
+  })
+
   it('remove drops the row and restores it on reject', async () => {
     const initialTask = createTaskRow({ id: 'task-1' })
     const { api, mutate } = makeApi()

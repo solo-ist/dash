@@ -2,8 +2,11 @@ import { create } from 'zustand'
 import type { StoreApi, UseBoundStore } from 'zustand'
 import type { DashApi, TaskAddInput } from '../../shared/api'
 import type { TaskRow } from '../../shared/types'
+import type { Op } from '../../shared/ops'
 
 export type TaskStore = UseBoundStore<StoreApi<TaskState>>
+
+export type TaskUpdatePatch = Omit<Extract<Op, { type: 'task.update' }>, 'type' | 'id'>
 
 export interface TaskState {
   tasks: TaskRow[]
@@ -11,6 +14,7 @@ export interface TaskState {
   error: string | null
   load: () => Promise<void>
   add: (input: TaskAddInput) => Promise<void>
+  update: (id: string, patch: TaskUpdatePatch) => Promise<void>
   complete: (id: string) => Promise<void>
   uncomplete: (id: string) => Promise<void>
   remove: (id: string) => Promise<void>
@@ -80,6 +84,51 @@ export function createTaskStore(api: DashApi): TaskStore {
         // Rollback on failure
         set((state) => ({
           tasks: state.tasks.filter(task => task.id !== tempId),
+          error: err instanceof Error ? err.message : String(err)
+        }))
+      }
+    },
+    update: async (id: string, patch: TaskUpdatePatch) => {
+      const prevState = get()
+      const taskToUpdate = prevState.tasks.find(task => task.id === id)
+
+      if (!taskToUpdate) return
+
+      const optimisticTask: TaskRow = {
+        ...taskToUpdate,
+        ...(patch.content !== undefined ? { content: patch.content } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.projectId !== undefined ? { project_id: patch.projectId } : {}),
+        ...(patch.sectionId !== undefined ? { section_id: patch.sectionId } : {}),
+        ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+        ...(patch.dueDate !== undefined ? { due_date: patch.dueDate } : {}),
+        ...(patch.dueHasTime !== undefined ? { due_has_time: patch.dueHasTime ? 1 : 0 } : {}),
+        ...(patch.durationMin !== undefined ? { duration_min: patch.durationMin } : {}),
+        updated_at: new Date().toISOString()
+      }
+
+      // Optimistically apply the patch
+      set((state) => ({
+        tasks: state.tasks.map(task =>
+          task.id === id ? optimisticTask : task
+        ),
+        error: null
+      }))
+
+      try {
+        const result = await api.mutate({ type: 'task.update', id, ...patch })
+        const updatedTask = requireTask(result)
+        set((state) => ({
+          tasks: state.tasks.map(task =>
+            task.id === id ? updatedTask : task
+          )
+        }))
+      } catch (err) {
+        // Rollback on failure
+        set((state) => ({
+          tasks: state.tasks.map(task =>
+            task.id === id ? taskToUpdate : task
+          ),
           error: err instanceof Error ? err.message : String(err)
         }))
       }

@@ -5,13 +5,14 @@ const priority = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)
 const taskOptionalFields = {
   description: z.string().optional(),
   projectId: z.string().optional(),
-  sectionId: z.string().optional(),
+  parentId: z.string().nullable().optional(),
+  sectionId: z.string().nullable().optional(),
   priority: priority.optional(),
-  dueDate: z.string().optional(),
+  dueDate: z.string().nullable().optional(),
   dueHasTime: z.boolean().optional(),
-  recurString: z.string().optional(),
+  recurString: z.string().nullable().optional(),
   recurStrict: z.boolean().optional(),
-  durationMin: z.number().int().positive().optional()
+  durationMin: z.number().int().positive().nullable().optional()
 }
 
 const TaskAddSchema = z.object({

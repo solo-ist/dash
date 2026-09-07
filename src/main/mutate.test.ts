@@ -4,6 +4,7 @@ import { openDatabase } from './db/open'
 import { migrate } from './db/migrate'
 import { mutate } from './mutate'
 import { getProject, getTask, listProjects, listSections, listTasks } from './queries'
+import { readTaskRow } from './mutate'
 
 describe('mutate', () => {
   let db: Database
@@ -215,5 +216,135 @@ describe('mutate', () => {
 
     const allSections = listSections(db)
     expect(allSections.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('subtasks', () => {
+  it('task.add with parentId sets parent_id and inherits the parent\'s project_id and section_id even when a different projectId is passed', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, { type: 'section.add', projectId: project.id, name: 'To do' }).sections![0]
+    
+    const parent = mutate(db, { type: 'task.add', content: 'Parent task', projectId: project.id, sectionId: section.id }).tasks![0]
+    
+    const child = mutate(db, { type: 'task.add', content: 'Child task', projectId: 'different-project-id', parentId: parent.id }).tasks![0]
+    
+    expect(child.parent_id).toBe(parent.id)
+    expect(child.project_id).toBe(project.id)
+    expect(child.section_id).toBe(section.id)
+  })
+
+  it('task.add with a nonexistent parentId throws', () => {
+    expect(() =>
+      mutate(db, { type: 'task.add', content: 'Child task', parentId: 'nonexistent-id' })
+    ).toThrow()
+  })
+
+  it('task.update setting parentId re-parents the task and inherits the parent\'s project_id; task.update with parentId: null clears parent_id', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, { type: 'section.add', projectId: project.id, name: 'To do' }).sections![0]
+    
+    const parent = mutate(db, { type: 'task.add', content: 'Parent task', projectId: project.id, sectionId: section.id }).tasks![0]
+    const child = mutate(db, { type: 'task.add', content: 'Child task', projectId: project.id, sectionId: section.id }).tasks![0]
+    
+    // Reparent child to parent
+    const updated = mutate(db, { type: 'task.update', id: child.id, parentId: parent.id })
+    expect(updated.tasks![0].parent_id).toBe(parent.id)
+    expect(updated.tasks![0].project_id).toBe(project.id)
+    expect(updated.tasks![0].section_id).toBe(section.id)
+    
+    // Clear parent_id
+    const cleared = mutate(db, { type: 'task.update', id: child.id, parentId: null })
+    expect(cleared.tasks![0].parent_id).toBeNull()
+  })
+
+  it('task.update with parentId equal to the task\'s own id throws', () => {
+    const parent = mutate(db, { type: 'task.add', content: 'Parent task' }).tasks![0]
+    
+    expect(() =>
+      mutate(db, { type: 'task.update', id: parent.id, parentId: parent.id })
+    ).toThrow('task cannot be its own parent')
+  })
+
+  it('Cycle: create a, then b with parentId a, then c with parentId b; task.update a with parentId c throws', () => {
+    const a = mutate(db, { type: 'task.add', content: 'Task A' }).tasks![0]
+    const b = mutate(db, { type: 'task.add', content: 'Task B', parentId: a.id }).tasks![0]
+    const c = mutate(db, { type: 'task.add', content: 'Task C', parentId: b.id }).tasks![0]
+    
+    expect(() =>
+      mutate(db, { type: 'task.update', id: a.id, parentId: c.id })
+    ).toThrow('parent change would create a cycle')
+  })
+
+  it('Cascade delete: parent with child and grandchild - task.delete on the parent returns 3 tasks and all three rows have deleted_at set', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, { type: 'section.add', projectId: project.id, name: 'To do' }).sections![0]
+    
+    const a = mutate(db, { type: 'task.add', content: 'Task A', projectId: project.id, sectionId: section.id }).tasks![0]
+    const b = mutate(db, { type: 'task.add', content: 'Task B', parentId: a.id }).tasks![0]
+    const c = mutate(db, { type: 'task.add', content: 'Task C', parentId: b.id }).tasks![0]
+    
+    const deleted = mutate(db, { type: 'task.delete', id: a.id })
+    
+    expect(deleted.tasks).toHaveLength(3)
+    
+    // Check that all tasks have deleted_at set
+    const aRow = readTaskRow(db, a.id)
+    const bRow = readTaskRow(db, b.id)
+    const cRow = readTaskRow(db, c.id)
+    
+    expect(aRow!.deleted_at).toBeTruthy()
+    expect(bRow!.deleted_at).toBeTruthy()
+    expect(cRow!.deleted_at).toBeTruthy()
+  })
+
+  it('Cascade undelete: after test-6-style delete, task.undelete on the parent restores all three (deleted_at null on each)', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, { type: 'section.add', projectId: project.id, name: 'To do' }).sections![0]
+    
+    const a = mutate(db, { type: 'task.add', content: 'Task A', projectId: project.id, sectionId: section.id }).tasks![0]
+    const b = mutate(db, { type: 'task.add', content: 'Task B', parentId: a.id }).tasks![0]
+    const c = mutate(db, { type: 'task.add', content: 'Task C', parentId: b.id }).tasks![0]
+    
+    // Delete parent
+    mutate(db, { type: 'task.delete', id: a.id })
+    
+    // Undelete parent
+    const undeleted = mutate(db, { type: 'task.undelete', id: a.id })
+    
+    expect(undeleted.tasks).toHaveLength(3)
+    
+    // Check that all tasks have deleted_at cleared
+    const aRow = readTaskRow(db, a.id)
+    const bRow = readTaskRow(db, b.id)
+    const cRow = readTaskRow(db, c.id)
+    
+    expect(aRow!.deleted_at).toBeNull()
+    expect(bRow!.deleted_at).toBeNull()
+    expect(cRow!.deleted_at).toBeNull()
+  })
+
+  it('Independent completion: complete the parent; re-read the child via a task.update no-op or the returned rows - the child\'s checked stays 0', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, { type: 'section.add', projectId: project.id, name: 'To do' }).sections![0]
+    
+    const parent = mutate(db, { type: 'task.add', content: 'Parent task', projectId: project.id, sectionId: section.id }).tasks![0]
+    const child = mutate(db, { type: 'task.add', content: 'Child task', parentId: parent.id }).tasks![0]
+    
+    // Complete parent
+    mutate(db, { type: 'task.complete', id: parent.id })
+    
+    // Read child (should still be unchecked)
+    const childAfter = getTask(db, child.id)
+    expect(childAfter!.checked).toBe(0)
+  })
+
+  it('task.update with sectionId: null clears section_id on a task that had a section', () => {
+    const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
+    const section = mutate(db, { type: 'section.add', projectId: project.id, name: 'To do' }).sections![0]
+    
+    const task = mutate(db, { type: 'task.add', content: 'Task', projectId: project.id, sectionId: section.id }).tasks![0]
+    
+    const updated = mutate(db, { type: 'task.update', id: task.id, sectionId: null })
+    expect(updated.tasks![0].section_id).toBeNull()
   })
 })

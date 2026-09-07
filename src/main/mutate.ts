@@ -54,26 +54,36 @@ function findOrCreateInboxProjectId(db: Database, now: string): string {
 function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
   const now = nowIso()
   const id = nanoid(21)
-  const projectId = op.projectId ?? findOrCreateInboxProjectId(db, now)
+  
+  let projectId = op.projectId ?? findOrCreateInboxProjectId(db, now)
+  let sectionId = op.sectionId ?? null
+  
+  // Handle subtasks
+  if (op.parentId !== undefined && op.parentId !== null) {
+    const parent = requireTaskRow(db, op.parentId)
+    projectId = parent.project_id
+    sectionId = parent.section_id
+  }
 
   db.prepare(
     `INSERT INTO tasks (
        id, content, description, project_id, section_id, priority,
        due_date, due_has_time, recur_string, recur_strict, duration_min,
-       task_order, added_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       parent_id, task_order, added_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     op.content,
     op.description ?? '',
     projectId,
-    op.sectionId ?? null,
+    sectionId,
     op.priority ?? 4,
     op.dueDate ?? null,
     op.dueHasTime ? 1 : 0,
     op.recurString ?? null,
     op.recurStrict ? 1 : 0,
     op.durationMin ?? null,
+    op.parentId ?? null,
     0,
     now,
     now
@@ -97,6 +107,32 @@ function updateTask(db: Database, op: Extract<Op, { type: 'task.update' }>): Tas
   if (op.recurString !== undefined) fields.push(['recur_string', op.recurString])
   if (op.recurStrict !== undefined) fields.push(['recur_strict', op.recurStrict ? 1 : 0])
   if (op.durationMin !== undefined) fields.push(['duration_min', op.durationMin])
+  
+  // Handle parentId updates
+  if (op.parentId !== undefined) {
+    if (op.parentId === null) {
+      fields.push(['parent_id', null])
+    } else if (op.parentId === op.id) {
+      throw new Error('task cannot be its own parent')
+    } else {
+      const parent = requireTaskRow(db, op.parentId)
+      
+      // Cycle guard - walk up the parent chain
+      let cur = parent.parent_id
+      while (cur !== null) {
+        if (cur === op.id) {
+          throw new Error('parent change would create a cycle')
+        }
+        const parentRow = readTaskRow(db, cur)
+        cur = parentRow?.parent_id ?? null
+      }
+      
+      fields.push(['parent_id', parent.id])
+      fields.push(['project_id', parent.project_id])
+      fields.push(['section_id', parent.section_id])
+    }
+  }
+  
   fields.push(['updated_at', now])
 
   const setClause = fields.map(([column]) => `${column} = ?`).join(', ')
@@ -145,23 +181,77 @@ function uncompleteTask(db: Database, op: Extract<Op, { type: 'task.uncomplete' 
   return requireTaskRow(db, op.id)
 }
 
-function deleteTask(db: Database, op: Extract<Op, { type: 'task.delete' }>): TaskRow {
+function deleteTask(db: Database, op: Extract<Op, { type: 'task.delete' }>): TaskRow[] {
   requireTaskRow(db, op.id)
   const now = nowIso()
-  db.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, op.id)
-
-  const row = readTaskRow(db, op.id)
-  if (!row) throw new Error(`task not found after delete: ${op.id}`)
-  return row
+  
+  // Collect all open descendant ids iteratively
+  const descendants: string[] = []
+  const stack = [op.id]
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    const rows = db.prepare('SELECT id FROM tasks WHERE parent_id = ? AND deleted_at IS NULL').all(id) as Array<{id: string}>
+    for (const row of rows) {
+      stack.push(row.id)
+      descendants.push(row.id)
+    }
+  }
+  
+  // Delete the task and all descendants
+  const allIds = [op.id, ...descendants]
+  for (const id of allIds) {
+    db.prepare('UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+  }
+  
+  // Return all affected rows
+  const result: TaskRow[] = []
+  for (const id of allIds) {
+    const row = readTaskRow(db, id)
+    if (!row) throw new Error(`task not found after delete: ${id}`)
+    result.push(row)
+  }
+  
+  return result
 }
 
-function undeleteTask(db: Database, op: Extract<Op, { type: 'task.undelete' }>): TaskRow {
+function undeleteTask(db: Database, op: Extract<Op, { type: 'task.undelete' }>): TaskRow[] {
   const row = readTaskRow(db, op.id)
   if (!row) throw new Error(`task not found: ${op.id}`)
   const now = nowIso()
+  
+  const originalDeletedAt = row.deleted_at
+  
+  // Restore the task itself
   db.prepare('UPDATE tasks SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(now, op.id)
-
-  return requireTaskRow(db, op.id)
+  
+  const result: TaskRow[] = [requireTaskRow(db, op.id)]
+  
+  // If this was a deleted task, also restore descendants
+  if (originalDeletedAt !== null) {
+    // Collect all descendant ids that were deleted at the same time
+    const descendants: string[] = []
+    const stack = [op.id]
+    while (stack.length > 0) {
+      const id = stack.pop()!
+      const rows = db.prepare('SELECT id FROM tasks WHERE parent_id = ? AND deleted_at = ?').all(id, originalDeletedAt) as Array<{id: string}>
+      for (const row of rows) {
+        stack.push(row.id)
+        descendants.push(row.id)
+      }
+    }
+    
+    // Restore all descendants
+    for (const id of descendants) {
+      db.prepare('UPDATE tasks SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(now, id)
+    }
+    
+    // Add restored descendants to result
+    for (const id of descendants) {
+      result.push(requireTaskRow(db, id))
+    }
+  }
+  
+  return result
 }
 
 function addProject(db: Database, op: Extract<Op, { type: 'project.add' }>): ProjectRow {
@@ -302,11 +392,11 @@ function applyOp(db: Database, op: Op): MutateResult {
     case 'task.complete':
       return { tasks: [completeTask(db, op)] }
     case 'task.delete':
-      return { tasks: [deleteTask(db, op)] }
+      return { tasks: deleteTask(db, op) }
     case 'task.uncomplete':
       return { tasks: [uncompleteTask(db, op)] }
     case 'task.undelete':
-      return { tasks: [undeleteTask(db, op)] }
+      return { tasks: undeleteTask(db, op) }
     case 'project.add':
       return { projects: [addProject(db, op)] }
     case 'project.update':
