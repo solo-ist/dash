@@ -19,6 +19,12 @@ export interface TaskState {
 
 let tempIdCounter = 0
 
+function requireTask(result: { tasks?: TaskRow[] }): TaskRow {
+  const task = result.tasks?.[0]
+  if (!task) throw new Error('mutate did not return a task')
+  return task
+}
+
 export function createTaskStore(api: DashApi): TaskStore {
   return create<TaskState>()((set, get) => ({
     tasks: [],
@@ -26,7 +32,7 @@ export function createTaskStore(api: DashApi): TaskStore {
     error: null,
     load: async () => {
       try {
-        const tasks = await api.tasks.list()
+        const tasks = await api.query('tasks.list', {})
         set({ tasks, loaded: true, error: null })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
@@ -65,7 +71,8 @@ export function createTaskStore(api: DashApi): TaskStore {
       }))
 
       try {
-        const newTask = await api.tasks.add(input)
+        const result = await api.mutate({ type: 'task.add', ...input })
+        const newTask = requireTask(result)
         set((state) => ({
           tasks: state.tasks.map(task => task.id === tempId ? newTask : task)
         }))
@@ -92,9 +99,10 @@ export function createTaskStore(api: DashApi): TaskStore {
       }))
 
       try {
-        const completedTask = await api.tasks.complete(id)
+        const result = await api.mutate({ type: 'task.complete', id })
+        const completedTask = requireTask(result)
         set((state) => ({
-          tasks: state.tasks.map(task => 
+          tasks: state.tasks.map(task =>
             task.id === id ? completedTask : task
           )
         }))
@@ -123,9 +131,10 @@ export function createTaskStore(api: DashApi): TaskStore {
       }))
 
       try {
-        const uncompletedTask = await api.tasks.uncomplete(id)
+        const result = await api.mutate({ type: 'task.uncomplete', id })
+        const uncompletedTask = requireTask(result)
         set((state) => ({
-          tasks: state.tasks.map(task => 
+          tasks: state.tasks.map(task =>
             task.id === id ? uncompletedTask : task
           )
         }))
@@ -152,7 +161,7 @@ export function createTaskStore(api: DashApi): TaskStore {
       }))
 
       try {
-        await api.tasks.delete(id)
+        await api.mutate({ type: 'task.delete', id })
       } catch (err) {
         // Rollback on failure
         set((state) => ({
@@ -163,7 +172,8 @@ export function createTaskStore(api: DashApi): TaskStore {
     },
     undelete: async (id: string) => {
       try {
-        const restored = await api.tasks.undelete(id)
+        const result = await api.mutate({ type: 'task.undelete', id })
+        const restored = requireTask(result)
         set((state) => ({
           tasks: [...state.tasks.filter(task => task.id !== restored.id), restored],
           error: null

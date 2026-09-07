@@ -19,7 +19,7 @@ export function createProjectStore(api: DashApi): ProjectStore {
     error: null,
     load: async () => {
       try {
-        const projects = await api.projects.list()
+        const projects = await api.query('projects.list', {})
         set({ projects, loaded: true, error: null })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })

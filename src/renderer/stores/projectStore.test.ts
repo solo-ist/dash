@@ -20,20 +20,13 @@ const createProjectRow = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   ...overrides
 })
 
-const makeApi = (): DashApi => ({
-  platform: 'test',
-  tasks: {
-    list: vi.fn(),
-    add: vi.fn(),
-    complete: vi.fn(),
-    uncomplete: vi.fn(),
-    delete: vi.fn(),
-    undelete: vi.fn()
-  },
-  projects: {
-    list: vi.fn()
-  }
-})
+function makeApi(): { api: DashApi; query: ReturnType<typeof vi.fn> } {
+  const query = vi.fn()
+  const mutate = vi.fn()
+  const on = vi.fn()
+  const api = { platform: 'test', query, mutate, on } as DashApi
+  return { api, query }
+}
 
 describe('projectStore', () => {
   beforeEach(() => {
@@ -41,8 +34,8 @@ describe('projectStore', () => {
   })
 
   it('load populates projects and sets loaded', async () => {
-    const api = makeApi()
-    vi.mocked(api.projects.list).mockResolvedValue([createProjectRow({ id: '1' }), createProjectRow({ id: '2' })])
+    const { api, query } = makeApi()
+    query.mockResolvedValue([createProjectRow({ id: '1' }), createProjectRow({ id: '2' })])
 
     const store = createProjectStore(api)
     await store.getState().load()
@@ -50,12 +43,12 @@ describe('projectStore', () => {
     expect(store.getState().projects).toHaveLength(2)
     expect(store.getState().loaded).toBe(true)
     expect(store.getState().error).toBeNull()
-    expect(api.projects.list).toHaveBeenCalled()
+    expect(query).toHaveBeenCalledWith('projects.list', {})
   })
 
   it('load sets error on failure', async () => {
-    const api = makeApi()
-    vi.mocked(api.projects.list).mockRejectedValue(new Error('Failed to load'))
+    const { api, query } = makeApi()
+    query.mockRejectedValue(new Error('Failed to load'))
 
     const store = createProjectStore(api)
     await store.getState().load()
