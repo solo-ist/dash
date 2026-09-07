@@ -11,9 +11,12 @@ import { createSectionStore, selectSectionsForProject } from './stores/sectionSt
 import { createLabelStore, selectLabelsForTask, selectSortedLabels } from './stores/labelStore'
 import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
+import { BoardView } from './components/app/BoardView'
 import { TaskDetailPanel } from './components/app/TaskDetailPanel'
 import { QuickAdd } from './components/app/QuickAdd'
 import { UndoBar, type UndoNotice } from './components/app/UndoBar'
+import { selectSubtaskCounts } from './stores/boardSelectors'
+import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs'
 import type { TaskAddInput } from '../shared/api'
 
 const useTaskStore = createTaskStore(window.api)
@@ -31,6 +34,7 @@ export default function App(): React.JSX.Element {
   const undeleteTask = useTaskStore((s) => s.undelete)
   const addTask = useTaskStore((s) => s.add)
   const updateTask = useTaskStore((s) => s.update)
+  const moveTask = useTaskStore((s) => s.moveTask)
 
   const [undoNotice, setUndoNotice] = useState<UndoNotice | null>(null)
 
@@ -62,6 +66,7 @@ export default function App(): React.JSX.Element {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [view, setView] = useState<'list' | 'board'>('list')
 
   useEffect(() => {
     void loadTasks()
@@ -91,6 +96,7 @@ export default function App(): React.JSX.Element {
     labelsByTaskId[task.id] = selectLabelsForTask(labels, taskLabels, task.id)
   }
 
+  const subtaskCounts = selectSubtaskCounts(openTasks)
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null
 
   useEffect(() => {
@@ -172,24 +178,49 @@ export default function App(): React.JSX.Element {
           onDeleteLabel={(id) => void removeLabel(id)}
         />
         <main className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-end border-b border-border px-4 py-1.5">
+            <Tabs value={view} onValueChange={(value) => setView(value as 'list' | 'board')}>
+              <TabsList>
+                <TabsTrigger value="list">List</TabsTrigger>
+                <TabsTrigger value="board">Board</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
           <div className="flex flex-1 overflow-hidden">
             <div className="flex-1 overflow-hidden">
-              <TaskList
-                tasks={openTasks}
-                sections={projectSections}
-                error={error}
-                selectedTaskId={selectedTaskId}
-                labelsByTaskId={labelsByTaskId}
-                onComplete={handleComplete}
-                onDelete={handleDelete}
-                onSelect={(id) => setSelectedTaskId((current) => (current === id ? null : id))}
-                onAddSection={(name) => {
-                  if (selectedProjectId !== null) void addSection({ projectId: selectedProjectId, name })
-                }}
-                onRenameSection={(id, name) => void renameSection(id, name)}
-                onArchiveSection={(id) => void archiveSection(id)}
-                onDeleteSection={(id) => void removeSection(id)}
-              />
+              {view === 'list' ? (
+                <TaskList
+                  tasks={openTasks}
+                  sections={projectSections}
+                  error={error}
+                  selectedTaskId={selectedTaskId}
+                  labelsByTaskId={labelsByTaskId}
+                  onComplete={handleComplete}
+                  onDelete={handleDelete}
+                  onSelect={(id) => setSelectedTaskId((current) => (current === id ? null : id))}
+                  onMove={(id, targetIndex, scope) => void moveTask(id, targetIndex, scope)}
+                  onAddSection={(name) => {
+                    if (selectedProjectId !== null) void addSection({ projectId: selectedProjectId, name })
+                  }}
+                  onRenameSection={(id, name) => void renameSection(id, name)}
+                  onArchiveSection={(id) => void archiveSection(id)}
+                  onDeleteSection={(id) => void removeSection(id)}
+                />
+              ) : (
+                selectedProjectId !== null && (
+                  <BoardView
+                    tasks={openTasks}
+                    sections={projectSections}
+                    projectId={selectedProjectId}
+                    selectedTaskId={selectedTaskId}
+                    subtaskCounts={subtaskCounts}
+                    onComplete={handleComplete}
+                    onDelete={handleDelete}
+                    onSelect={(id) => setSelectedTaskId((current) => (current === id ? null : id))}
+                    onMove={(id, targetIndex, scope) => void moveTask(id, targetIndex, scope)}
+                  />
+                )
+              )}
             </div>
             {selectedTask !== null && (
               <TaskDetailPanel
