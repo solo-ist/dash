@@ -18,6 +18,7 @@ const taskOptionalFields = {
 const TaskAddSchema = z.object({
   type: z.literal('task.add'),
   content: z.string().min(1),
+  labels: z.array(z.string()).optional(),
   ...taskOptionalFields
 })
 
@@ -105,6 +106,32 @@ const SectionUnarchiveSchema = z.object({
   id: z.string()
 })
 
+const LabelAddSchema = z.object({
+  type: z.literal('label.add'),
+  name: z.string().min(1),
+  color: z.string().optional(),
+  isFavorite: z.boolean().optional()
+})
+
+const LabelUpdateSchema = z.object({
+  type: z.literal('label.update'),
+  id: z.string(),
+  name: z.string().min(1).optional(),
+  color: z.string().optional(),
+  isFavorite: z.boolean().optional()
+})
+
+const LabelDeleteSchema = z.object({
+  type: z.literal('label.delete'),
+  id: z.string()
+})
+
+const TaskSetLabelsSchema = z.object({
+  type: z.literal('task.setLabels'),
+  id: z.string(),
+  labelIds: z.array(z.string())
+})
+
 export const OpSchema = z.discriminatedUnion('type', [
   TaskAddSchema,
   TaskUpdateSchema,
@@ -112,6 +139,7 @@ export const OpSchema = z.discriminatedUnion('type', [
   TaskDeleteSchema,
   TaskUncompleteSchema,
   TaskUndeleteSchema,
+  TaskSetLabelsSchema,
   ProjectAddSchema,
   ProjectUpdateSchema,
   ProjectDeleteSchema,
@@ -121,7 +149,10 @@ export const OpSchema = z.discriminatedUnion('type', [
   SectionUpdateSchema,
   SectionDeleteSchema,
   SectionArchiveSchema,
-  SectionUnarchiveSchema
+  SectionUnarchiveSchema,
+  LabelAddSchema,
+  LabelUpdateSchema,
+  LabelDeleteSchema
 ])
 
 export type Op = z.infer<typeof OpSchema>

@@ -8,6 +8,7 @@ import {
   selectArchivedProjects
 } from './stores/projectStore'
 import { createSectionStore, selectSectionsForProject } from './stores/sectionStore'
+import { createLabelStore, selectLabelsForTask, selectSortedLabels } from './stores/labelStore'
 import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
 import { TaskDetailPanel } from './components/app/TaskDetailPanel'
@@ -18,6 +19,7 @@ import type { TaskAddInput } from '../shared/api'
 const useTaskStore = createTaskStore(window.api)
 const useProjectStore = createProjectStore(window.api)
 const useSectionStore = createSectionStore(window.api)
+const useLabelStore = createLabelStore(window.api)
 
 export default function App(): React.JSX.Element {
   const tasks = useTaskStore((s) => s.tasks)
@@ -50,6 +52,14 @@ export default function App(): React.JSX.Element {
   const archiveSection = useSectionStore((s) => s.archive)
   const removeSection = useSectionStore((s) => s.remove)
 
+  const labels = useLabelStore((s) => s.labels)
+  const taskLabels = useLabelStore((s) => s.taskLabels)
+  const loadLabels = useLabelStore((s) => s.load)
+  const addLabel = useLabelStore((s) => s.add)
+  const renameLabel = useLabelStore((s) => s.rename)
+  const removeLabel = useLabelStore((s) => s.remove)
+  const setTaskLabels = useLabelStore((s) => s.setTaskLabels)
+
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
 
@@ -57,7 +67,8 @@ export default function App(): React.JSX.Element {
     void loadTasks()
     void loadProjects()
     void loadSections()
-  }, [loadTasks, loadProjects, loadSections])
+    void loadLabels()
+  }, [loadTasks, loadProjects, loadSections, loadLabels])
 
   const inbox = selectInbox(projects)
   const favorites = selectFavorites(projects)
@@ -73,6 +84,12 @@ export default function App(): React.JSX.Element {
   const openTasks = selectedProjectId === null ? [] : selectOpenTasks(tasks, selectedProjectId)
   const projectSections = selectedProjectId === null ? [] : selectSectionsForProject(sections, selectedProjectId)
   const error = taskError ?? projectError
+  const sortedLabels = selectSortedLabels(labels)
+
+  const labelsByTaskId: Record<string, ReturnType<typeof selectLabelsForTask>> = {}
+  for (const task of openTasks) {
+    labelsByTaskId[task.id] = selectLabelsForTask(labels, taskLabels, task.id)
+  }
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null
 
@@ -149,6 +166,10 @@ export default function App(): React.JSX.Element {
           onArchiveProject={(id) => void archiveProject(id)}
           onUnarchiveProject={(id) => void unarchiveProject(id)}
           onDeleteProject={(id) => void removeProject(id)}
+          labels={sortedLabels}
+          onAddLabel={(input) => void addLabel(input)}
+          onRenameLabel={(id, name) => void renameLabel(id, name)}
+          onDeleteLabel={(id) => void removeLabel(id)}
         />
         <main className="flex flex-1 flex-col overflow-hidden">
           <div className="flex flex-1 overflow-hidden">
@@ -158,6 +179,7 @@ export default function App(): React.JSX.Element {
                 sections={projectSections}
                 error={error}
                 selectedTaskId={selectedTaskId}
+                labelsByTaskId={labelsByTaskId}
                 onComplete={handleComplete}
                 onDelete={handleDelete}
                 onSelect={(id) => setSelectedTaskId((current) => (current === id ? null : id))}
@@ -178,6 +200,9 @@ export default function App(): React.JSX.Element {
                 onClose={() => setSelectedTaskId(null)}
                 onComplete={handleComplete}
                 onDelete={handleDelete}
+                allLabels={sortedLabels}
+                assignedLabels={selectLabelsForTask(labels, taskLabels, selectedTask.id)}
+                onSetLabels={(taskId, labelIds) => void setTaskLabels(taskId, labelIds)}
               />
             )}
           </div>

@@ -1,16 +1,20 @@
 import { z } from 'zod'
-import type { ProjectRow, SectionRow, TaskRow } from './types'
+import type { LabelRow, ProjectRow, SectionRow, TaskLabelRow, TaskRow } from './types'
 
 export const QueryParamsSchemas = {
   'tasks.list': z.object({ projectId: z.string().optional() }),
   'projects.list': z.object({}),
-  'sections.list': z.object({ projectId: z.string().optional() })
+  'sections.list': z.object({ projectId: z.string().optional() }),
+  'labels.list': z.object({}),
+  'taskLabels.list': z.object({})
 } as const
 
 export interface QueryResultTypes {
   'tasks.list': TaskRow[]
   'projects.list': ProjectRow[]
   'sections.list': SectionRow[]
+  'labels.list': LabelRow[]
+  'taskLabels.list': TaskLabelRow[]
 }
 
 export type QueryName = keyof typeof QueryParamsSchemas

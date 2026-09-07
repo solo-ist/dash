@@ -367,3 +367,125 @@ describe('subtasks', () => {
     expect(updated.tasks![0].section_id).toBeNull()
   })
 })
+
+describe('labels', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openDatabase(':memory:')
+    migrate(db)
+  })
+
+  it('adds and lists a label', () => {
+    const result = mutate(db, { type: 'label.add', name: 'urgent' })
+    const label = result.labels?.[0]
+    expect(label?.name).toBe('urgent')
+    expect(label?.color).toBe('charcoal')
+    expect(label?.is_favorite).toBe(0)
+  })
+
+  it('rejects adding a label with a name that already exists (live)', () => {
+    mutate(db, { type: 'label.add', name: 'urgent' })
+    expect(() => mutate(db, { type: 'label.add', name: 'urgent' })).toThrow()
+  })
+
+  it('updates a label name, color, and favorite flag', () => {
+    const label = mutate(db, { type: 'label.add', name: 'urgent' }).labels![0]
+
+    const updated = mutate(db, {
+      type: 'label.update',
+      id: label.id,
+      name: 'urgent2',
+      color: 'red',
+      isFavorite: true
+    })
+    expect(updated.labels?.[0].name).toBe('urgent2')
+    expect(updated.labels?.[0].color).toBe('red')
+    expect(updated.labels?.[0].is_favorite).toBe(1)
+  })
+
+  it('tombstones a deleted label instead of removing the row and soft-deletes its task_labels rows', () => {
+    const label = mutate(db, { type: 'label.add', name: 'urgent' }).labels![0]
+    const task = mutate(db, { type: 'task.add', content: 'Task', labels: ['urgent'] }).tasks![0]
+
+    const deleted = mutate(db, { type: 'label.delete', id: label.id })
+    expect(deleted.labels?.[0].deleted_at).toBeTruthy()
+    expect(deleted.taskLabels).toHaveLength(1)
+    expect(deleted.taskLabels?.[0].deleted_at).toBeTruthy()
+
+    const raw = db.prepare('SELECT deleted_at FROM labels WHERE id = ?').get(label.id) as
+      | { deleted_at: string | null }
+      | undefined
+    expect(raw?.deleted_at).toBeTruthy()
+
+    const taskLabelRaw = db
+      .prepare('SELECT deleted_at FROM task_labels WHERE task_id = ? AND label_id = ?')
+      .get(task.id, label.id) as { deleted_at: string | null } | undefined
+    expect(taskLabelRaw?.deleted_at).toBeTruthy()
+  })
+
+  it('reviving a soft-deleted label name: deleting then re-adding a label with the same name revives the row instead of throwing', () => {
+    const label = mutate(db, { type: 'label.add', name: 'urgent' }).labels![0]
+    mutate(db, { type: 'label.delete', id: label.id })
+
+    const revived = mutate(db, { type: 'label.add', name: 'urgent', color: 'blue' }).labels![0]
+    expect(revived.id).toBe(label.id)
+    expect(revived.deleted_at).toBeNull()
+    expect(revived.color).toBe('blue')
+  })
+
+  it('task.setLabels replaces the full label set for a task', () => {
+    const labelA = mutate(db, { type: 'label.add', name: 'a' }).labels![0]
+    const labelB = mutate(db, { type: 'label.add', name: 'b' }).labels![0]
+    const labelC = mutate(db, { type: 'label.add', name: 'c' }).labels![0]
+    const task = mutate(db, { type: 'task.add', content: 'Task' }).tasks![0]
+
+    mutate(db, { type: 'task.setLabels', id: task.id, labelIds: [labelA.id, labelB.id] })
+    const replaced = mutate(db, { type: 'task.setLabels', id: task.id, labelIds: [labelB.id, labelC.id] })
+
+    const liveLabelIds = replaced.taskLabels?.map((tl) => tl.label_id).sort()
+    expect(liveLabelIds).toEqual([labelB.id, labelC.id].sort())
+
+    const allRows = db
+      .prepare('SELECT label_id, deleted_at FROM task_labels WHERE task_id = ?')
+      .all(task.id) as Array<{ label_id: string; deleted_at: string | null }>
+    const aRow = allRows.find((r) => r.label_id === labelA.id)
+    const bRow = allRows.find((r) => r.label_id === labelB.id)
+    const cRow = allRows.find((r) => r.label_id === labelC.id)
+    expect(aRow?.deleted_at).toBeTruthy()
+    expect(bRow?.deleted_at).toBeNull()
+    expect(cRow?.deleted_at).toBeNull()
+  })
+
+  it('task.setLabels rejects an unknown label id', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Task' }).tasks![0]
+    expect(() =>
+      mutate(db, { type: 'task.setLabels', id: task.id, labelIds: ['missing-label'] })
+    ).toThrow()
+  })
+
+  it('task.add with labels finds-or-creates labels by case-insensitive name and reuses existing ones', () => {
+    const existing = mutate(db, { type: 'label.add', name: 'Urgent' }).labels![0]
+
+    const result = mutate(db, {
+      type: 'task.add',
+      content: 'Task',
+      labels: ['urgent', 'new-label']
+    })
+
+    expect(result.labels).toHaveLength(2)
+    const urgentLabel = result.labels?.find((l) => l.id === existing.id)
+    expect(urgentLabel).toBeDefined()
+    const newLabel = result.labels?.find((l) => l.name === 'new-label')
+    expect(newLabel).toBeDefined()
+
+    const taskLabelIds = result.taskLabels?.map((tl) => tl.label_id).sort()
+    expect(taskLabelIds).toEqual([existing.id, newLabel!.id].sort())
+
+    // No duplicate label was created for the case-insensitive match.
+    const allLabels = db.prepare('SELECT id FROM labels WHERE name = ? COLLATE NOCASE').all('urgent') as Array<{
+      id: string
+    }>
+    expect(allLabels).toHaveLength(1)
+  })
+})

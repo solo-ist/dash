@@ -5,7 +5,7 @@ import { QueryParamsSchemas, type QueryName } from '../shared/queries'
 import type { DataChangedPayload } from '../shared/api'
 import type { MutateResult } from '../shared/types'
 import { mutate } from './mutate'
-import { listProjects, listSections, listTasks } from './queries'
+import { listLabels, listProjects, listSections, listTaskLabels, listTasks } from './queries'
 
 function isQueryName(name: unknown): name is QueryName {
   return typeof name === 'string' && Object.prototype.hasOwnProperty.call(QueryParamsSchemas, name)
@@ -25,6 +25,14 @@ function runQuery(db: Database, name: QueryName, params: unknown): unknown {
       const parsed = QueryParamsSchemas['sections.list'].parse(params)
       return listSections(db, parsed.projectId)
     }
+    case 'labels.list': {
+      QueryParamsSchemas['labels.list'].parse(params)
+      return listLabels(db)
+    }
+    case 'taskLabels.list': {
+      QueryParamsSchemas['taskLabels.list'].parse(params)
+      return listTaskLabels(db)
+    }
     default: {
       const exhaustive: never = name
       throw new Error(`unknown query: ${String(exhaustive)}`)
@@ -37,6 +45,8 @@ function entitiesFor(result: MutateResult): string[] {
   if (result.tasks !== undefined) entities.push('tasks')
   if (result.projects !== undefined) entities.push('projects')
   if (result.sections !== undefined) entities.push('sections')
+  if (result.labels !== undefined) entities.push('labels')
+  if (result.taskLabels !== undefined) entities.push('taskLabels')
   return entities
 }
 

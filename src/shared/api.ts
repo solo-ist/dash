@@ -14,6 +14,7 @@ export interface TaskAddInput {
   recurStrict?: boolean
   durationMin?: number
   parentId?: string
+  labels?: string[]
 }
 
 export interface DataChangedPayload {

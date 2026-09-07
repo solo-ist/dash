@@ -9,13 +9,14 @@ import {
 } from '../ui/dropdown-menu'
 import { TaskRowItem } from './TaskRowItem'
 import { nestTasksByParent, subtaskCounts } from '../../stores/taskStore'
-import type { SectionRow, TaskRow } from '../../../shared/types'
+import type { LabelRow, SectionRow, TaskRow } from '../../../shared/types'
 
 export interface TaskListProps {
   tasks: TaskRow[]
   sections: SectionRow[]
   error: string | null
   selectedTaskId?: string | null
+  labelsByTaskId?: Record<string, LabelRow[]>
   onComplete: (id: string) => void
   onDelete: (id: string) => void
   onSelect?: (id: string) => void
@@ -97,6 +98,7 @@ export function TaskList({
   sections,
   error,
   selectedTaskId = null,
+  labelsByTaskId = {},
   onComplete,
   onDelete,
   onSelect,
@@ -135,6 +137,7 @@ export function TaskList({
                 task={task}
                 depth={depth}
                 subtaskCount={subtaskCounts(tasks, task.id)}
+                labels={labelsByTaskId[task.id]}
                 selected={task.id === selectedTaskId}
                 onComplete={onComplete}
                 onDelete={onDelete}
@@ -149,6 +152,7 @@ export function TaskList({
                   task={task}
                   depth={depth}
                   subtaskCount={subtaskCounts(tasks, task.id)}
+                  labels={labelsByTaskId[task.id]}
                   selected={task.id === selectedTaskId}
                   onComplete={onComplete}
                   onDelete={onDelete}
@@ -172,6 +176,7 @@ export function TaskList({
                         task={task}
                         depth={depth}
                         subtaskCount={subtaskCounts(tasks, task.id)}
+                        labels={labelsByTaskId[task.id]}
                         selected={task.id === selectedTaskId}
                         onComplete={onComplete}
                         onDelete={onDelete}

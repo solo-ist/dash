@@ -5,7 +5,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '../ui/context-menu'
-import type { TaskRow } from '../../../shared/types'
+import type { LabelRow, TaskRow } from '../../../shared/types'
 
 const PRIORITY_RING: Record<number, string> = {
   1: 'border-red-400 text-red-400',
@@ -29,7 +29,7 @@ const DEPTH_PADDING: Record<number, string> = {
 
 export interface TaskRowItemProps {
   task: TaskRow
-  labels?: string[]
+  labels?: LabelRow[]
   selected?: boolean
   depth?: number
   subtaskCount?: { total: number; completed: number }
@@ -86,10 +86,14 @@ export function TaskRowItem({
           )}
           {labels.map((label) => (
             <span
-              key={label}
-              className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground"
+              key={label.id}
+              className="flex shrink-0 items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground"
             >
-              {label}
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: label.color }}
+              />
+              {label.name}
             </span>
           ))}
         </div>

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import { nanoid } from 'nanoid'
 import { OpSchema, type Op } from '../shared/ops'
-import type { MutateResult, ProjectRow, SectionRow, TaskRow } from '../shared/types'
+import type { LabelRow, MutateResult, ProjectRow, SectionRow, TaskLabelRow, TaskRow } from '../shared/types'
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -37,6 +37,32 @@ function requireSectionRow(db: Database, id: string): SectionRow {
   return row
 }
 
+function readLabelRow(db: Database, id: string): LabelRow | undefined {
+  return db.prepare('SELECT * FROM labels WHERE id = ?').get(id) as LabelRow | undefined
+}
+
+function requireLabelRow(db: Database, id: string): LabelRow {
+  const row = readLabelRow(db, id)
+  if (!row || row.deleted_at !== null) throw new Error(`label not found: ${id}`)
+  return row
+}
+
+function findLiveLabelByNameExact(db: Database, name: string): LabelRow | undefined {
+  return db
+    .prepare('SELECT * FROM labels WHERE name = ? AND deleted_at IS NULL')
+    .get(name) as LabelRow | undefined
+}
+
+function findLiveLabelByNameCaseInsensitive(db: Database, name: string): LabelRow | undefined {
+  return db
+    .prepare('SELECT * FROM labels WHERE name = ? COLLATE NOCASE AND deleted_at IS NULL')
+    .get(name) as LabelRow | undefined
+}
+
+function findLabelByNameAnyState(db: Database, name: string): LabelRow | undefined {
+  return db.prepare('SELECT * FROM labels WHERE name = ?').get(name) as LabelRow | undefined
+}
+
 function findOrCreateInboxProjectId(db: Database, now: string): string {
   const existing = db
     .prepare('SELECT id FROM projects WHERE is_inbox = 1 AND deleted_at IS NULL LIMIT 1')
@@ -49,6 +75,49 @@ function findOrCreateInboxProjectId(db: Database, now: string): string {
      VALUES (?, 'Inbox', 1, ?)`
   ).run(id, now)
   return id
+}
+
+function findOrCreateLabelByName(db: Database, name: string, now: string): LabelRow {
+  const existing = findLiveLabelByNameCaseInsensitive(db, name)
+  if (existing) return existing
+
+  const id = nanoid(21)
+  db.prepare(
+    `INSERT INTO labels (id, name, updated_at)
+     VALUES (?, ?, ?)`
+  ).run(id, name, now)
+  return requireLabelRow(db, id)
+}
+
+function attachTaskLabelsByName(
+  db: Database,
+  taskId: string,
+  names: string[]
+): { labels: LabelRow[]; taskLabels: TaskLabelRow[] } {
+  const now = nowIso()
+  const labels: LabelRow[] = []
+  const taskLabels: TaskLabelRow[] = []
+  const seen = new Set<string>()
+
+  for (const name of names) {
+    const label = findOrCreateLabelByName(db, name, now)
+    if (seen.has(label.id)) continue
+    seen.add(label.id)
+    labels.push(label)
+
+    db.prepare(
+      `INSERT INTO task_labels (task_id, label_id, updated_at, deleted_at)
+       VALUES (?, ?, ?, NULL)
+       ON CONFLICT (task_id, label_id) DO UPDATE SET updated_at = excluded.updated_at, deleted_at = NULL`
+    ).run(taskId, label.id, now)
+
+    const taskLabel = db
+      .prepare('SELECT * FROM task_labels WHERE task_id = ? AND label_id = ?')
+      .get(taskId, label.id) as TaskLabelRow
+    taskLabels.push(taskLabel)
+  }
+
+  return { labels, taskLabels }
 }
 
 function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
@@ -383,10 +452,124 @@ function unarchiveSection(db: Database, op: Extract<Op, { type: 'section.unarchi
   return requireSectionRow(db, op.id)
 }
 
+function addLabel(db: Database, op: Extract<Op, { type: 'label.add' }>): LabelRow {
+  const now = nowIso()
+
+  const liveDuplicate = findLiveLabelByNameExact(db, op.name)
+  if (liveDuplicate) throw new Error(`label name already exists: ${op.name}`)
+
+  const existingAnyState = findLabelByNameAnyState(db, op.name)
+  if (existingAnyState) {
+    // The UNIQUE(name) constraint would collide with a soft-deleted row of
+    // the same name, so revive it instead of inserting a fresh row.
+    db.prepare(
+      `UPDATE labels SET name = ?, color = ?, is_favorite = ?, deleted_at = NULL, updated_at = ?
+       WHERE id = ?`
+    ).run(op.name, op.color ?? 'charcoal', op.isFavorite ? 1 : 0, now, existingAnyState.id)
+    return requireLabelRow(db, existingAnyState.id)
+  }
+
+  const id = nanoid(21)
+  db.prepare(
+    `INSERT INTO labels (id, name, color, is_favorite, updated_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(id, op.name, op.color ?? 'charcoal', op.isFavorite ? 1 : 0, now)
+
+  return requireLabelRow(db, id)
+}
+
+function updateLabel(db: Database, op: Extract<Op, { type: 'label.update' }>): LabelRow {
+  requireLabelRow(db, op.id)
+  const now = nowIso()
+
+  const fields: Array<[string, unknown]> = []
+  if (op.name !== undefined) fields.push(['name', op.name])
+  if (op.color !== undefined) fields.push(['color', op.color])
+  if (op.isFavorite !== undefined) fields.push(['is_favorite', op.isFavorite ? 1 : 0])
+  fields.push(['updated_at', now])
+
+  const setClause = fields.map(([column]) => `${column} = ?`).join(', ')
+  const values = fields.map(([, value]) => value)
+
+  db.prepare(`UPDATE labels SET ${setClause} WHERE id = ?`).run(...values, op.id)
+
+  return requireLabelRow(db, op.id)
+}
+
+function deleteLabel(db: Database, op: Extract<Op, { type: 'label.delete' }>): { label: LabelRow; taskLabels: TaskLabelRow[] } {
+  requireLabelRow(db, op.id)
+  const now = nowIso()
+
+  db.prepare('UPDATE labels SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, op.id)
+
+  const affectedTaskLabels = db
+    .prepare('SELECT task_id FROM task_labels WHERE label_id = ? AND deleted_at IS NULL')
+    .all(op.id) as Array<{ task_id: string }>
+  db.prepare('UPDATE task_labels SET deleted_at = ?, updated_at = ? WHERE label_id = ? AND deleted_at IS NULL').run(
+    now,
+    now,
+    op.id
+  )
+
+  const taskLabels = affectedTaskLabels.map(
+    (row) =>
+      db
+        .prepare('SELECT * FROM task_labels WHERE task_id = ? AND label_id = ?')
+        .get(row.task_id, op.id) as TaskLabelRow
+  )
+
+  const row = readLabelRow(db, op.id)
+  if (!row) throw new Error(`label not found after delete: ${op.id}`)
+  return { label: row, taskLabels }
+}
+
+function setTaskLabels(
+  db: Database,
+  op: Extract<Op, { type: 'task.setLabels' }>
+): { taskLabels: TaskLabelRow[] } {
+  requireTaskRow(db, op.id)
+  const now = nowIso()
+  const keepIds = new Set(op.labelIds)
+
+  const current = db
+    .prepare('SELECT * FROM task_labels WHERE task_id = ? AND deleted_at IS NULL')
+    .all(op.id) as TaskLabelRow[]
+
+  for (const row of current) {
+    if (!keepIds.has(row.label_id)) {
+      db.prepare(
+        'UPDATE task_labels SET deleted_at = ?, updated_at = ? WHERE task_id = ? AND label_id = ?'
+      ).run(now, now, op.id, row.label_id)
+    }
+  }
+
+  const taskLabels: TaskLabelRow[] = []
+  for (const labelId of op.labelIds) {
+    requireLabelRow(db, labelId)
+    db.prepare(
+      `INSERT INTO task_labels (task_id, label_id, updated_at, deleted_at)
+       VALUES (?, ?, ?, NULL)
+       ON CONFLICT (task_id, label_id) DO UPDATE SET updated_at = excluded.updated_at, deleted_at = NULL`
+    ).run(op.id, labelId, now)
+    const taskLabel = db
+      .prepare('SELECT * FROM task_labels WHERE task_id = ? AND label_id = ?')
+      .get(op.id, labelId) as TaskLabelRow
+    taskLabels.push(taskLabel)
+  }
+
+  return { taskLabels }
+}
+
 function applyOp(db: Database, op: Op): MutateResult {
   switch (op.type) {
-    case 'task.add':
-      return { tasks: [addTask(db, op)] }
+    case 'task.add': {
+      const task = addTask(db, op)
+      if (op.labels !== undefined && op.labels.length > 0) {
+        const { labels, taskLabels } = attachTaskLabelsByName(db, task.id, op.labels)
+        return { tasks: [task], labels, taskLabels }
+      }
+      return { tasks: [task] }
+    }
     case 'task.update':
       return { tasks: [updateTask(db, op)] }
     case 'task.complete':
@@ -397,6 +580,10 @@ function applyOp(db: Database, op: Op): MutateResult {
       return { tasks: [uncompleteTask(db, op)] }
     case 'task.undelete':
       return { tasks: undeleteTask(db, op) }
+    case 'task.setLabels': {
+      const { taskLabels } = setTaskLabels(db, op)
+      return { taskLabels }
+    }
     case 'project.add':
       return { projects: [addProject(db, op)] }
     case 'project.update':
@@ -417,6 +604,14 @@ function applyOp(db: Database, op: Op): MutateResult {
       return { sections: [archiveSection(db, op)] }
     case 'section.unarchive':
       return { sections: [unarchiveSection(db, op)] }
+    case 'label.add':
+      return { labels: [addLabel(db, op)] }
+    case 'label.update':
+      return { labels: [updateLabel(db, op)] }
+    case 'label.delete': {
+      const { label, taskLabels } = deleteLabel(db, op)
+      return { labels: [label], taskLabels }
+    }
     default: {
       const exhaustive: never = op
       throw new Error(`mutate: unknown op ${JSON.stringify(exhaustive)}`)

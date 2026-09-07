@@ -5,13 +5,14 @@ import { Textarea } from '../ui/textarea'
 import { Button } from '../ui/button'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
 import { cn } from '../../lib/utils'
 import { parseBlocks, type BlockToken, type InlineToken } from '../../lib/markdown'
-import type { TaskRow } from '../../../shared/types'
+import type { LabelRow, TaskRow } from '../../../shared/types'
 import type { TaskUpdatePatch } from '../../stores/taskStore'
 
 const PRIORITY_TEXT: Record<number, string> = {
@@ -50,6 +51,9 @@ export interface TaskDetailPanelProps {
   onDelete: (id: string) => void
   onSelectTask?: (id: string) => void
   onAddSubtask?: (parentId: string, content: string) => void
+  allLabels?: LabelRow[]
+  assignedLabels?: LabelRow[]
+  onSetLabels?: (taskId: string, labelIds: string[]) => void
 }
 
 function InlineTokens({ tokens }: { tokens: InlineToken[] }): React.JSX.Element {
@@ -156,7 +160,10 @@ export function TaskDetailPanel({
   onUncomplete,
   onDelete,
   onSelectTask,
-  onAddSubtask
+  onAddSubtask,
+  allLabels = [],
+  assignedLabels = [],
+  onSetLabels
 }: TaskDetailPanelProps): React.JSX.Element {
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.content)
@@ -174,6 +181,14 @@ export function TaskDetailPanel({
     } else {
       onComplete(child.id)
     }
+  }
+
+  function toggleLabel(labelId: string): void {
+    const assignedIds = assignedLabels.map((label) => label.id)
+    const nextIds = assignedIds.includes(labelId)
+      ? assignedIds.filter((id) => id !== labelId)
+      : [...assignedIds, labelId]
+    onSetLabels?.(task.id, nextIds)
   }
 
   function commitAddSubtask(): void {
@@ -352,6 +367,42 @@ export function TaskDetailPanel({
               <span className="text-sm text-foreground">{task.duration_min} min</span>
             </div>
           )}
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Labels</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex flex-wrap items-center justify-end gap-1 text-sm hover:underline">
+                {assignedLabels.length > 0 ? (
+                  assignedLabels.map((label) => (
+                    <span
+                      key={label.id}
+                      className="flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground"
+                    >
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: label.color }}
+                      />
+                      {label.name}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-muted-foreground">Add labels…</span>
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {allLabels.map((label) => (
+                  <DropdownMenuCheckboxItem
+                    key={label.id}
+                    checked={assignedLabels.some((assigned) => assigned.id === label.id)}
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={() => toggleLabel(label.id)}
+                  >
+                    {label.name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         <div className="space-y-1.5 border-t border-border pt-3">

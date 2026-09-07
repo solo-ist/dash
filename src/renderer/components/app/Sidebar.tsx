@@ -11,7 +11,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '../ui/context-menu'
-import type { ProjectRow } from '../../../shared/types'
+import type { LabelRow, ProjectRow } from '../../../shared/types'
 
 export interface SidebarProps {
   inbox: ProjectRow | undefined
@@ -26,6 +26,46 @@ export interface SidebarProps {
   onArchiveProject: (id: string) => void
   onUnarchiveProject: (id: string) => void
   onDeleteProject: (id: string) => void
+  labels?: LabelRow[]
+  onAddLabel?: (input: { name: string }) => void
+  onRenameLabel?: (id: string, name: string) => void
+  onDeleteLabel?: (id: string) => void
+}
+
+interface LabelDialogState {
+  mode: 'add' | 'rename'
+  labelId?: string
+  name: string
+}
+
+function LabelRowItem({
+  label,
+  onRename,
+  onDelete
+}: {
+  label: LabelRow
+  onRename: (label: LabelRow) => void
+  onDelete: (id: string) => void
+}): React.JSX.Element {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent/50">
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: label.color }}
+          />
+          <span className="flex-1 truncate">{label.name}</span>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onRename(label)}>Rename</ContextMenuItem>
+        <ContextMenuItem className="text-destructive" onSelect={() => onDelete(label.id)}>
+          Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  )
 }
 
 interface ProjectDialogState {
@@ -106,10 +146,33 @@ export function Sidebar({
   onToggleFavorite,
   onArchiveProject,
   onUnarchiveProject,
-  onDeleteProject
+  onDeleteProject,
+  labels = [],
+  onAddLabel,
+  onRenameLabel,
+  onDeleteLabel
 }: SidebarProps): React.JSX.Element {
   const [dialog, setDialog] = useState<ProjectDialogState | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [labelDialog, setLabelDialog] = useState<LabelDialogState | null>(null)
+
+  function openAddLabelDialog(): void {
+    setLabelDialog({ mode: 'add', name: '' })
+  }
+
+  function openRenameLabelDialog(label: LabelRow): void {
+    setLabelDialog({ mode: 'rename', labelId: label.id, name: label.name })
+  }
+
+  function handleLabelDialogSubmit(): void {
+    if (labelDialog === null || labelDialog.name.trim().length === 0) return
+    if (labelDialog.mode === 'add') {
+      onAddLabel?.({ name: labelDialog.name.trim() })
+    } else if (labelDialog.labelId !== undefined) {
+      onRenameLabel?.(labelDialog.labelId, labelDialog.name.trim())
+    }
+    setLabelDialog(null)
+  }
 
   function openAddDialog(): void {
     setDialog({ mode: 'add', name: '', color: '' })
@@ -221,7 +284,59 @@ export function Sidebar({
             )}
           </>
         )}
+
+        <Separator className="my-3" />
+        <div className="flex items-center justify-between px-2 pb-1">
+          <p className="text-xs font-medium uppercase text-muted-foreground">Labels</p>
+          <button
+            type="button"
+            onClick={openAddLabelDialog}
+            className="text-xs text-muted-foreground hover:text-foreground"
+            aria-label="Add label"
+          >
+            +
+          </button>
+        </div>
+        <div className="flex flex-col gap-1">
+          {labels.map((label) => (
+            <LabelRowItem
+              key={label.id}
+              label={label}
+              onRename={openRenameLabelDialog}
+              onDelete={(id) => onDeleteLabel?.(id)}
+            />
+          ))}
+        </div>
       </ScrollArea>
+
+      <Dialog open={labelDialog !== null} onOpenChange={(open) => !open && setLabelDialog(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{labelDialog?.mode === 'add' ? 'New label' : 'Rename label'}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <Input
+              autoFocus
+              placeholder="Label name"
+              value={labelDialog?.name ?? ''}
+              onChange={(event) =>
+                setLabelDialog((prev) => (prev !== null ? { ...prev, name: event.target.value } : prev))
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleLabelDialogSubmit()
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={handleLabelDialogSubmit}>
+              {labelDialog?.mode === 'add' ? 'Create' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
         <DialogContent className="sm:max-w-sm">
