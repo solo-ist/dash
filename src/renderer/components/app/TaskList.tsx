@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
 import { TaskRowItem } from './TaskRowItem'
+import { nestTasksByParent, subtaskCounts } from '../../stores/taskStore'
 import type { SectionRow, TaskRow } from '../../../shared/types'
 
 export interface TaskListProps {
@@ -128,10 +129,12 @@ export function TaskList({
       ) : (
         <ScrollArea className="flex-1">
           {sections.length === 0 ? (
-            tasks.map((task) => (
+            nestTasksByParent(tasks).map(({ task, depth }) => (
               <TaskRowItem
                 key={task.id}
                 task={task}
+                depth={depth}
+                subtaskCount={subtaskCounts(tasks, task.id)}
                 selected={task.id === selectedTaskId}
                 onComplete={onComplete}
                 onDelete={onDelete}
@@ -140,10 +143,12 @@ export function TaskList({
             ))
           ) : (
             <>
-              {unsectioned.map((task) => (
+              {nestTasksByParent(unsectioned).map(({ task, depth }) => (
                 <TaskRowItem
                   key={task.id}
                   task={task}
+                  depth={depth}
+                  subtaskCount={subtaskCounts(tasks, task.id)}
                   selected={task.id === selectedTaskId}
                   onComplete={onComplete}
                   onDelete={onDelete}
@@ -161,10 +166,12 @@ export function TaskList({
                       onArchive={onArchiveSection}
                       onDelete={onDeleteSection}
                     />
-                    {sectionTasks.map((task) => (
+                    {nestTasksByParent(sectionTasks).map(({ task, depth }) => (
                       <TaskRowItem
                         key={task.id}
                         task={task}
+                        depth={depth}
+                        subtaskCount={subtaskCounts(tasks, task.id)}
                         selected={task.id === selectedTaskId}
                         onComplete={onComplete}
                         onDelete={onDelete}

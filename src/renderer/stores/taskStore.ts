@@ -14,6 +14,7 @@ export interface TaskState {
   error: string | null
   load: () => Promise<void>
   add: (input: TaskAddInput) => Promise<void>
+  addSubtask: (parentId: string, content: string) => Promise<void>
   update: (id: string, patch: TaskUpdatePatch) => Promise<void>
   complete: (id: string) => Promise<void>
   uncomplete: (id: string) => Promise<void>
@@ -51,7 +52,7 @@ export function createTaskStore(api: DashApi): TaskStore {
         description: input.description ?? '',
         project_id: input.projectId ?? '',
         section_id: input.sectionId ?? null,
-        parent_id: null,
+        parent_id: input.parentId ?? null,
         priority: input.priority ?? 4,
         due_date: input.dueDate ?? null,
         due_has_time: input.dueHasTime ? 1 : 0,
@@ -87,6 +88,15 @@ export function createTaskStore(api: DashApi): TaskStore {
           error: err instanceof Error ? err.message : String(err)
         }))
       }
+    },
+    addSubtask: async (parentId: string, content: string) => {
+      const parent = get().tasks.find(task => task.id === parentId)
+      await get().add({
+        content,
+        parentId,
+        projectId: parent?.project_id,
+        sectionId: parent?.section_id ?? undefined
+      })
     },
     update: async (id: string, patch: TaskUpdatePatch) => {
       const prevState = get()
@@ -244,4 +254,56 @@ export function selectAllOpenTasks(tasks: TaskRow[]): TaskRow[] {
   return tasks
     .filter(task => task.checked === 0 && task.deleted_at === null)
     .sort((a, b) => new Date(a.added_at).getTime() - new Date(b.added_at).getTime())
+}
+
+export interface NestedTask {
+  task: TaskRow
+  depth: number
+}
+
+// Given a flat, already-scoped task list (e.g. one project/section), produce a
+// display order where top-level tasks keep their input order and each task's
+// children are flattened directly beneath it, depth-first. A task whose parent
+// isn't part of the given list (e.g. filtered out elsewhere) is treated as
+// top-level rather than dropped.
+export function nestTasksByParent(tasks: TaskRow[]): NestedTask[] {
+  const visible = tasks.filter(task => task.deleted_at === null)
+  const idSet = new Set(visible.map(task => task.id))
+  const childrenByParent = new Map<string, TaskRow[]>()
+
+  for (const task of visible) {
+    if (task.parent_id !== null && idSet.has(task.parent_id)) {
+      const siblings = childrenByParent.get(task.parent_id)
+      if (siblings) siblings.push(task)
+      else childrenByParent.set(task.parent_id, [task])
+    }
+  }
+
+  const result: NestedTask[] = []
+  function walk(task: TaskRow, depth: number): void {
+    result.push({ task, depth })
+    const children = childrenByParent.get(task.id)
+    if (children === undefined) return
+    for (const child of children) walk(child, depth + 1)
+  }
+
+  for (const task of visible) {
+    if (task.parent_id === null || !idSet.has(task.parent_id)) walk(task, 0)
+  }
+
+  return result
+}
+
+export interface SubtaskCounts {
+  total: number
+  completed: number
+}
+
+// Counts a task's direct (non-deleted) children — used for the "1/3" subtask chip.
+export function subtaskCounts(tasks: TaskRow[], parentId: string): SubtaskCounts {
+  const children = tasks.filter(task => task.parent_id === parentId && task.deleted_at === null)
+  return {
+    total: children.length,
+    completed: children.filter(task => task.checked === 1).length
+  }
 }

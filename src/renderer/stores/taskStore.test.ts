@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createTaskStore, selectOpenTasks, selectAllOpenTasks } from './taskStore'
+import { createTaskStore, selectOpenTasks, selectAllOpenTasks, nestTasksByParent, subtaskCounts } from './taskStore'
 import type { TaskRow } from '../../shared/types'
 import type { DashApi } from '../../shared/api'
 
@@ -282,5 +282,87 @@ describe('taskStore', () => {
     expect(result).toHaveLength(2)
     expect(result[0].id).toBe('3') // sorted by added_at ascending
     expect(result[1].id).toBe('4')
+  })
+
+  it('addSubtask issues task.add with the parent id and inherited project/section', async () => {
+    const parent = createTaskRow({ id: 'parent-1', project_id: 'proj1', section_id: 'sec1' })
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [createTaskRow({ id: 'child-1', parent_id: 'parent-1' })] })
+
+    const store = createTaskStore(api)
+    store.setState({ tasks: [parent] })
+
+    await store.getState().addSubtask('parent-1', 'New subtask')
+
+    expect(mutate).toHaveBeenCalledWith({
+      type: 'task.add',
+      content: 'New subtask',
+      parentId: 'parent-1',
+      projectId: 'proj1',
+      sectionId: 'sec1'
+    })
+  })
+
+  describe('nestTasksByParent', () => {
+    it('orders top-level tasks first and flattens children beneath their parent with depth', () => {
+      const parent = createTaskRow({ id: 'parent', parent_id: null })
+      const childA = createTaskRow({ id: 'child-a', parent_id: 'parent' })
+      const childB = createTaskRow({ id: 'child-b', parent_id: 'parent' })
+      const grandchild = createTaskRow({ id: 'grandchild', parent_id: 'child-a' })
+      const other = createTaskRow({ id: 'other', parent_id: null })
+
+      const result = nestTasksByParent([parent, childA, childB, grandchild, other])
+
+      expect(result.map((entry) => [entry.task.id, entry.depth])).toEqual([
+        ['parent', 0],
+        ['child-a', 1],
+        ['grandchild', 2],
+        ['child-b', 1],
+        ['other', 0]
+      ])
+    })
+
+    it('flattens children under the correct parent when multiple parents are present', () => {
+      const parentA = createTaskRow({ id: 'parent-a', parent_id: null })
+      const parentB = createTaskRow({ id: 'parent-b', parent_id: null })
+      const childOfA = createTaskRow({ id: 'child-of-a', parent_id: 'parent-a' })
+      const childOfB = createTaskRow({ id: 'child-of-b', parent_id: 'parent-b' })
+
+      const result = nestTasksByParent([parentA, parentB, childOfA, childOfB])
+
+      const idsUnderA = result.filter((entry) => entry.task.parent_id === 'parent-a').map((entry) => entry.task.id)
+      const idsUnderB = result.filter((entry) => entry.task.parent_id === 'parent-b').map((entry) => entry.task.id)
+      expect(idsUnderA).toEqual(['child-of-a'])
+      expect(idsUnderB).toEqual(['child-of-b'])
+    })
+
+    it('excludes deleted children from the nested output', () => {
+      const parent = createTaskRow({ id: 'parent', parent_id: null })
+      const liveChild = createTaskRow({ id: 'live-child', parent_id: 'parent' })
+      const deletedChild = createTaskRow({ id: 'deleted-child', parent_id: 'parent', deleted_at: '2023-01-01' })
+
+      const result = nestTasksByParent([parent, liveChild, deletedChild])
+
+      expect(result.map((entry) => entry.task.id)).toEqual(['parent', 'live-child'])
+    })
+  })
+
+  describe('subtaskCounts', () => {
+    it('returns total and completed counts for direct children', () => {
+      const tasks: TaskRow[] = [
+        createTaskRow({ id: 'parent', parent_id: null }),
+        createTaskRow({ id: 'child-1', parent_id: 'parent', checked: 1 }),
+        createTaskRow({ id: 'child-2', parent_id: 'parent', checked: 0 }),
+        createTaskRow({ id: 'child-3', parent_id: 'parent', checked: 0, deleted_at: '2023-01-01' }),
+        createTaskRow({ id: 'unrelated', parent_id: null })
+      ]
+
+      expect(subtaskCounts(tasks, 'parent')).toEqual({ total: 2, completed: 1 })
+    })
+
+    it('returns zero counts for a task with no children', () => {
+      const tasks: TaskRow[] = [createTaskRow({ id: 'lonely', parent_id: null })]
+      expect(subtaskCounts(tasks, 'lonely')).toEqual({ total: 0, completed: 0 })
+    })
   })
 })

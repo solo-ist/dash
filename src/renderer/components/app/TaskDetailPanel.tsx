@@ -25,14 +25,31 @@ function priorityColor(priority: number): string {
   return PRIORITY_TEXT[priority] ?? PRIORITY_TEXT[4]
 }
 
+const PRIORITY_BORDER: Record<number, string> = {
+  1: 'border-red-500',
+  2: 'border-orange-500',
+  3: 'border-blue-500',
+  4: 'border-muted-foreground'
+}
+
+function priorityBorder(priority: number): string {
+  return PRIORITY_BORDER[priority] ?? PRIORITY_BORDER[4]
+}
+
 export interface TaskDetailPanelProps {
   task: TaskRow
   projectName: string
   sectionName: string | null
+  // Full task list, used to derive the sub-tasks section and parent breadcrumb.
+  // Optional/defaulted so callers that don't yet pass it still render correctly.
+  tasks?: TaskRow[]
   onUpdate: (patch: TaskUpdatePatch) => void
   onClose: () => void
   onComplete: (id: string) => void
+  onUncomplete?: (id: string) => void
   onDelete: (id: string) => void
+  onSelectTask?: (id: string) => void
+  onAddSubtask?: (parentId: string, content: string) => void
 }
 
 function InlineTokens({ tokens }: { tokens: InlineToken[] }): React.JSX.Element {
@@ -132,15 +149,38 @@ export function TaskDetailPanel({
   task,
   projectName,
   sectionName,
+  tasks = [],
   onUpdate,
   onClose,
   onComplete,
-  onDelete
+  onUncomplete,
+  onDelete,
+  onSelectTask,
+  onAddSubtask
 }: TaskDetailPanelProps): React.JSX.Element {
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.content)
   const [editingDescription, setEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState(task.description)
+  const [newSubtaskContent, setNewSubtaskContent] = useState('')
+
+  const parentTask =
+    task.parent_id !== null ? tasks.find((candidate) => candidate.id === task.parent_id) ?? null : null
+  const children = tasks.filter((candidate) => candidate.parent_id === task.id && candidate.deleted_at === null)
+
+  function toggleChild(child: TaskRow): void {
+    if (child.checked === 1) {
+      onUncomplete?.(child.id)
+    } else {
+      onComplete(child.id)
+    }
+  }
+
+  function commitAddSubtask(): void {
+    const trimmed = newSubtaskContent.trim()
+    if (trimmed.length > 0) onAddSubtask?.(task.id, trimmed)
+    setNewSubtaskContent('')
+  }
 
   function startEditingTitle(): void {
     setTitleDraft(task.content)
@@ -205,6 +245,15 @@ export function TaskDetailPanel({
         </button>
       </div>
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
+        {parentTask !== null && (
+          <button
+            type="button"
+            onClick={() => onSelectTask?.(parentTask.id)}
+            className="block truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            {parentTask.content}
+          </button>
+        )}
         <div>
           {editingTitle ? (
             <Input
@@ -303,6 +352,49 @@ export function TaskDetailPanel({
               <span className="text-sm text-foreground">{task.duration_min} min</span>
             </div>
           )}
+        </div>
+
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <span className="text-xs text-muted-foreground">Sub-tasks</span>
+          {children.map((child) => (
+            <div key={child.id} className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label={child.checked === 1 ? 'Uncomplete sub-task' : 'Complete sub-task'}
+                onClick={() => toggleChild(child)}
+                className={cn(
+                  'h-3.5 w-3.5 shrink-0 rounded-full border-2 transition-colors hover:bg-accent',
+                  priorityBorder(child.priority),
+                  child.checked === 1 && 'bg-muted-foreground/40'
+                )}
+              />
+              <button
+                type="button"
+                onClick={() => onSelectTask?.(child.id)}
+                className={cn(
+                  'flex-1 truncate rounded-sm px-1 py-0.5 text-left text-sm hover:bg-accent',
+                  child.checked === 1 ? 'text-muted-foreground line-through' : 'text-foreground'
+                )}
+              >
+                {child.content}
+              </button>
+            </div>
+          ))}
+          <Input
+            placeholder="Add sub-task…"
+            value={newSubtaskContent}
+            onChange={(event) => setNewSubtaskContent(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                commitAddSubtask()
+              }
+              if (event.key === 'Escape') {
+                setNewSubtaskContent('')
+              }
+            }}
+            className="h-7 text-xs"
+          />
         </div>
       </div>
       <div className="flex items-center justify-between border-t border-border px-4 py-2.5">

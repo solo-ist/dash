@@ -4,7 +4,7 @@ import { openDatabase } from './db/open'
 import { migrate } from './db/migrate'
 import { mutate } from './mutate'
 import { getProject, getTask, listProjects, listSections, listTasks } from './queries'
-import { readTaskRow } from './mutate'
+
 
 describe('mutate', () => {
   let db: Database
@@ -220,6 +220,13 @@ describe('mutate', () => {
 })
 
 describe('subtasks', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openDatabase(':memory:')
+    migrate(db)
+  })
+
   it('task.add with parentId sets parent_id and inherits the parent\'s project_id and section_id even when a different projectId is passed', () => {
     const project = mutate(db, { type: 'project.add', name: 'Work' }).projects![0]
     const section = mutate(db, { type: 'section.add', projectId: project.id, name: 'To do' }).sections![0]
@@ -288,10 +295,16 @@ describe('subtasks', () => {
     expect(deleted.tasks).toHaveLength(3)
     
     // Check that all tasks have deleted_at set
-    const aRow = readTaskRow(db, a.id)
-    const bRow = readTaskRow(db, b.id)
-    const cRow = readTaskRow(db, c.id)
-    
+    const aRow = db.prepare('SELECT deleted_at FROM tasks WHERE id = ?').get(a.id) as
+      | { deleted_at: string | null }
+      | undefined
+    const bRow = db.prepare('SELECT deleted_at FROM tasks WHERE id = ?').get(b.id) as
+      | { deleted_at: string | null }
+      | undefined
+    const cRow = db.prepare('SELECT deleted_at FROM tasks WHERE id = ?').get(c.id) as
+      | { deleted_at: string | null }
+      | undefined
+
     expect(aRow!.deleted_at).toBeTruthy()
     expect(bRow!.deleted_at).toBeTruthy()
     expect(cRow!.deleted_at).toBeTruthy()
@@ -314,10 +327,16 @@ describe('subtasks', () => {
     expect(undeleted.tasks).toHaveLength(3)
     
     // Check that all tasks have deleted_at cleared
-    const aRow = readTaskRow(db, a.id)
-    const bRow = readTaskRow(db, b.id)
-    const cRow = readTaskRow(db, c.id)
-    
+    const aRow = db.prepare('SELECT deleted_at FROM tasks WHERE id = ?').get(a.id) as
+      | { deleted_at: string | null }
+      | undefined
+    const bRow = db.prepare('SELECT deleted_at FROM tasks WHERE id = ?').get(b.id) as
+      | { deleted_at: string | null }
+      | undefined
+    const cRow = db.prepare('SELECT deleted_at FROM tasks WHERE id = ?').get(c.id) as
+      | { deleted_at: string | null }
+      | undefined
+
     expect(aRow!.deleted_at).toBeNull()
     expect(bRow!.deleted_at).toBeNull()
     expect(cRow!.deleted_at).toBeNull()
