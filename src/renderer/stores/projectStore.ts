@@ -31,7 +31,7 @@ export interface ProjectState {
 }
 
 export function createProjectStore(api: DashApi): ProjectStore {
-  return create<ProjectState>()((set, get) => ({
+  const store = create<ProjectState>()((set, get) => ({
     projects: [],
     loaded: false,
     error: null,
@@ -123,6 +123,16 @@ export function createProjectStore(api: DashApi): ProjectStore {
       }
     }
   }))
+
+  // Reconcile on main-process broadcasts (same pattern as labelStore) so
+  // mutations this store didn't initiate still render.
+  api.on('data:changed', (payload) => {
+    if (payload.entities.includes('projects')) {
+      void store.getState().load()
+    }
+  })
+
+  return store
 }
 
 export function selectInbox(projects: ProjectRow[]): ProjectRow | undefined {

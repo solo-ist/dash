@@ -24,13 +24,15 @@ test('quick-add and persistence', async () => {
   // Launch app
   const { app, page } = await launchApp()
   
-  // Wait for window to load
+  // Wait for the app to actually mount (domcontentloaded fires before React
+  // attaches the q-shortcut listener — pressing earlier is a lost keystroke)
   await page.waitForLoadState('domcontentloaded')
-  
+  await expect(page.getByText('No tasks — press q to add')).toBeVisible()
+
   // Open quick-add
   await page.keyboard.press('q')
   await expect(page.locator('[data-testid="quick-add-input"]')).toBeVisible()
-  
+
   // Type task
   await page.locator('[data-testid="quick-add-input"]').fill('Water plants tomorrow p2 @light')
   

@@ -33,7 +33,7 @@ function requireTask(result: { tasks?: TaskRow[] }): TaskRow {
 }
 
 export function createTaskStore(api: DashApi): TaskStore {
-  return create<TaskState>()((set, get) => ({
+  const store = create<TaskState>()((set, get) => ({
     tasks: [],
     loaded: false,
     error: null,
@@ -261,6 +261,16 @@ export function createTaskStore(api: DashApi): TaskStore {
       }
     }
   }))
+
+  // Reconcile on main-process broadcasts (same pattern as labelStore) so
+  // mutations this store didn't initiate still render.
+  api.on('data:changed', (payload) => {
+    if (payload.entities.includes('tasks')) {
+      void store.getState().load()
+    }
+  })
+
+  return store
 }
 
 // Mirrors the main process's `ORDER BY task_order, added_at, id` so the

@@ -29,7 +29,7 @@ export interface SectionState {
 }
 
 export function createSectionStore(api: DashApi): SectionStore {
-  return create<SectionState>()((set, get) => ({
+  const store = create<SectionState>()((set, get) => ({
     sections: [],
     loaded: false,
     error: null,
@@ -103,6 +103,16 @@ export function createSectionStore(api: DashApi): SectionStore {
       }
     }
   }))
+
+  // Reconcile on main-process broadcasts (same pattern as labelStore) so
+  // mutations this store didn't initiate still render.
+  api.on('data:changed', (payload) => {
+    if (payload.entities.includes('sections')) {
+      void store.getState().load()
+    }
+  })
+
+  return store
 }
 
 export function selectSectionsForProject(sections: SectionRow[], projectId: string): SectionRow[] {
