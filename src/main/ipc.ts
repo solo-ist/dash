@@ -5,7 +5,16 @@ import { QueryParamsSchemas, type QueryName } from '../shared/queries'
 import type { DataChangedPayload } from '../shared/api'
 import type { MutateResult } from '../shared/types'
 import { mutate } from './mutate'
-import { listLabels, listProjects, listSections, listTaskLabels, listTasks } from './queries'
+import {
+  listLabels,
+  listProjects,
+  listReminders,
+  listSections,
+  listTaskLabels,
+  listTasks,
+  listTodayTasks,
+  listUpcomingTasks
+} from './queries'
 
 function isQueryName(name: unknown): name is QueryName {
   return typeof name === 'string' && Object.prototype.hasOwnProperty.call(QueryParamsSchemas, name)
@@ -41,6 +50,10 @@ function runQuery(db: Database, name: QueryName, params: unknown): unknown {
       const parsed = QueryParamsSchemas['tasks.upcoming'].parse(params)
       return listUpcomingTasks(db, parsed.today, parsed.horizonDays)
     }
+    case 'reminders.list': {
+      QueryParamsSchemas['reminders.list'].parse(params)
+      return listReminders(db)
+    }
     default: {
       const exhaustive: never = name
       throw new Error(`unknown query: ${String(exhaustive)}`)
@@ -55,6 +68,7 @@ function entitiesFor(result: MutateResult): string[] {
   if (result.sections !== undefined) entities.push('sections')
   if (result.labels !== undefined) entities.push('labels')
   if (result.taskLabels !== undefined) entities.push('taskLabels')
+  if (result.reminders !== undefined) entities.push('reminders')
   return entities
 }
 

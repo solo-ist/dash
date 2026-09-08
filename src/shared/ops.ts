@@ -12,6 +12,7 @@ const taskOptionalFields = {
   dueHasTime: z.boolean().optional(),
   recurString: z.string().nullable().optional(),
   recurStrict: z.boolean().optional(),
+  deadlineDate: z.string().nullable().optional(),
   durationMin: z.number().int().positive().nullable().optional()
 }
 

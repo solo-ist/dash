@@ -207,9 +207,9 @@ function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
   db.prepare(
     `INSERT INTO tasks (
        id, content, description, project_id, section_id, priority,
-       due_date, due_has_time, recur_string, recur_strict, duration_min,
+       due_date, due_has_time, recur_string, recur_strict, deadline_date, duration_min,
        parent_id, task_order, added_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     op.content,
@@ -221,6 +221,7 @@ function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
     op.dueHasTime ? 1 : 0,
     op.recurString ?? null,
     op.recurStrict ? 1 : 0,
+    op.deadlineDate ?? null,
     op.durationMin ?? null,
     parentId,
     taskOrder,
@@ -245,6 +246,7 @@ function updateTask(db: Database, op: Extract<Op, { type: 'task.update' }>): Tas
   if (op.dueHasTime !== undefined) fields.push(['due_has_time', op.dueHasTime ? 1 : 0])
   if (op.recurString !== undefined) fields.push(['recur_string', op.recurString])
   if (op.recurStrict !== undefined) fields.push(['recur_strict', op.recurStrict ? 1 : 0])
+  if (op.deadlineDate !== undefined) fields.push(['deadline_date', op.deadlineDate])
   if (op.durationMin !== undefined) fields.push(['duration_min', op.durationMin])
   
   // Handle parentId updates

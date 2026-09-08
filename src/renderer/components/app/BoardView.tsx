@@ -10,6 +10,7 @@ import { computeDropIndex } from './TaskList'
 import type { DropPosition } from './TaskRowItem'
 import { selectBoardColumns, type BoardColumn } from '../../stores/boardSelectors'
 import type { TaskMoveScope } from '../../stores/taskStore'
+import { todayLocalDate, datePart } from '../../lib/dates'
 import type { SectionRow, TaskRow } from '../../../shared/types'
 
 const PRIORITY_RING: Record<number, string> = {
@@ -57,6 +58,9 @@ function BoardCard({
   onDropCard,
   onDragEndCard
 }: BoardCardProps): React.JSX.Element {
+  const today = todayLocalDate()
+  const isDeadlinePast = task.deadline_date !== null && datePart(task.deadline_date) < today
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -108,11 +112,30 @@ function BoardCard({
               />
               <span className="flex-1 text-foreground">{task.content}</span>
             </div>
-            {subtaskCount !== undefined && subtaskCount > 0 && (
-              <span className="w-fit shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {subtaskCount} subtask{subtaskCount === 1 ? '' : 's'}
-              </span>
-            )}
+            {(subtaskCount !== undefined && subtaskCount > 0) ||
+            task.deadline_date !== null ||
+            task.duration_min !== null ? (
+              <div className="flex flex-wrap items-center gap-1">
+                {subtaskCount !== undefined && subtaskCount > 0 && (
+                  <span className="w-fit shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    {subtaskCount} subtask{subtaskCount === 1 ? '' : 's'}
+                  </span>
+                )}
+                {task.deadline_date !== null && (
+                  <span
+                    className={cn(
+                      'inline-flex w-fit shrink-0 items-center gap-0.5 rounded-sm border px-1 text-xs',
+                      isDeadlinePast ? 'border-destructive text-destructive' : 'border-border text-muted-foreground'
+                    )}
+                  >
+                    ◆ {datePart(task.deadline_date)}
+                  </span>
+                )}
+                {task.duration_min !== null && (
+                  <span className="w-fit shrink-0 text-xs text-muted-foreground">{task.duration_min} min</span>
+                )}
+              </div>
+            ) : null}
           </div>
           {dropIndicator === 'after' && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-0.5 bg-primary" />

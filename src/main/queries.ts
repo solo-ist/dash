@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { LabelRow, ProjectRow, SectionRow, TaskLabelRow, TaskRow } from '../shared/types'
+import type { LabelRow, ProjectRow, ReminderRow, SectionRow, TaskLabelRow, TaskRow } from '../shared/types'
 
 export function getTask(db: Database, id: string): TaskRow | undefined {
   return db
@@ -59,6 +59,10 @@ export function listTodayTasks(db: Database, today: string): TaskRow[] {
       'SELECT * FROM tasks WHERE deleted_at IS NULL AND checked = 0 AND due_date IS NOT NULL AND substr(due_date, 1, 10) <= ? ORDER BY due_date, priority, task_order'
     )
     .all(today) as TaskRow[]
+}
+
+export function listReminders(db: Database): ReminderRow[] {
+  return db.prepare('SELECT * FROM reminders WHERE deleted_at IS NULL').all() as ReminderRow[]
 }
 
 export function listUpcomingTasks(db: Database, today: string, horizonDays: number): TaskRow[] {

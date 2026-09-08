@@ -138,6 +138,7 @@ export function createTaskStore(api: DashApi): TaskStore {
         ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
         ...(patch.dueDate !== undefined ? { due_date: patch.dueDate } : {}),
         ...(patch.dueHasTime !== undefined ? { due_has_time: patch.dueHasTime ? 1 : 0 } : {}),
+        ...(patch.deadlineDate !== undefined ? { deadline_date: patch.deadlineDate } : {}),
         ...(patch.durationMin !== undefined ? { duration_min: patch.durationMin } : {}),
         updated_at: new Date().toISOString()
       }

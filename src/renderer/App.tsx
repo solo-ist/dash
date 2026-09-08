@@ -9,6 +9,7 @@ import {
 } from './stores/projectStore'
 import { createSectionStore, selectSectionsForProject } from './stores/sectionStore'
 import { createLabelStore, selectLabelsForTask, selectSortedLabels } from './stores/labelStore'
+import { createReminderStore, selectRemindersForTask } from './stores/reminderStore'
 import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
 import { BoardView } from './components/app/BoardView'
@@ -19,12 +20,13 @@ import { selectSubtaskCounts } from './stores/boardSelectors'
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs'
 import { TodayView } from './components/app/TodayView'
 import { UpcomingView } from './components/app/UpcomingView'
-import type { TaskAddInput } from '../shared/api
+import type { TaskAddInput } from '../shared/api'
 
 const useTaskStore = createTaskStore(window.api)
 const useProjectStore = createProjectStore(window.api)
 const useSectionStore = createSectionStore(window.api)
 const useLabelStore = createLabelStore(window.api)
+const useReminderStore = createReminderStore(window.api)
 
 export default function App(): React.JSX.Element {
   const tasks = useTaskStore((s) => s.tasks)
@@ -66,6 +68,11 @@ export default function App(): React.JSX.Element {
   const removeLabel = useLabelStore((s) => s.remove)
   const setTaskLabels = useLabelStore((s) => s.setTaskLabels)
 
+  const reminders = useReminderStore((s) => s.reminders)
+  const loadReminders = useReminderStore((s) => s.load)
+  const addReminder = useReminderStore((s) => s.add)
+  const removeReminder = useReminderStore((s) => s.remove)
+
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'board' | 'today' | 'upcoming'>('list')
@@ -75,7 +82,8 @@ export default function App(): React.JSX.Element {
     void loadProjects()
     void loadSections()
     void loadLabels()
-  }, [loadTasks, loadProjects, loadSections, loadLabels])
+    void loadReminders()
+  }, [loadTasks, loadProjects, loadSections, loadLabels, loadReminders])
 
   const inbox = selectInbox(projects)
   const favorites = selectFavorites(projects)
@@ -263,6 +271,9 @@ export default function App(): React.JSX.Element {
                 allLabels={sortedLabels}
                 assignedLabels={selectLabelsForTask(labels, taskLabels, selectedTask.id)}
                 onSetLabels={(taskId, labelIds) => void setTaskLabels(taskId, labelIds)}
+                taskReminders={selectRemindersForTask(reminders, selectedTask.id)}
+                onAddReminder={(input) => void addReminder(input)}
+                onDeleteReminder={(id) => void removeReminder(id)}
               />
             )}
           </div>

@@ -20,7 +20,7 @@ export interface SidebarProps {
   projects: ProjectRow[]
   archivedProjects: ProjectRow[]
   selectedProjectId: string | null
-  onSelect: (projectId: string) => void
+  onSelect: (projectId: string | null) => void
   onAddProject: (input: { name: string; color?: string }) => void
   onRenameProject: (id: string, name: string) => void
   onToggleFavorite: (id: string) => void
