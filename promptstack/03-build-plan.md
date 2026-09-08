@@ -47,11 +47,15 @@ All eight issues closed. Known deviation: preload shipped per-feature IPC
 channels; restoring the generic surface (architecture §5) is issue `#15`,
 scheduled before the M1 wave.
 
-## M1 — Organize
+## M1 — Organize (done 2026-09-07)
 
 Projects/sections CRUD, board view (sections as columns), subtasks, labels,
-priorities UI, manual ordering, task detail panel. (Tracking: `#10`; slice at
-wave start.)
+priorities UI, manual ordering (sparse sort keys, `src/shared/order/`), task
+detail panel with markdown body. Delivered with #15 (generic IPC restored) by
+goal/dash-m1-organize (7 iterations), orchestrator-verified + merged
+`f7b3e54`. Verification caught two gaps, fixed pre-merge: data:changed
+reconciliation was wired for labels only; the e2e had a mount race. Slices
+`#16`–`#22` closed; polish nits → `#23`.
 
 ## M2 — Time
 

@@ -30,7 +30,7 @@ All files green. Must include, at minimum:
 - Migration runner: applies to empty DB, sets `user_version`, idempotent on
   re-run.
 
-Baseline 2026-09-04: 5 files, 58 tests, all passing (main `416a6cc`). Counts
+Baseline 2026-09-07: 11 files, 193 tests, all passing (main `f7b3e54`). Counts
 grow; they never shrink without a removal being named in a commit message.
 
 ## G2 — Shell renders (manual or scripted, when renderer changes)
