@@ -9,6 +9,7 @@ import {
 } from './stores/projectStore'
 import { createSectionStore, selectSectionsForProject } from './stores/sectionStore'
 import { createLabelStore, selectLabelsForTask, selectSortedLabels } from './stores/labelStore'
+import { createReminderStore, selectRemindersForTask } from './stores/reminderStore'
 import { Sidebar } from './components/app/Sidebar'
 import { TaskList } from './components/app/TaskList'
 import { BoardView } from './components/app/BoardView'
@@ -17,12 +18,15 @@ import { QuickAdd } from './components/app/QuickAdd'
 import { UndoBar, type UndoNotice } from './components/app/UndoBar'
 import { selectSubtaskCounts } from './stores/boardSelectors'
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs'
+import { TodayView } from './components/app/TodayView'
+import { UpcomingView } from './components/app/UpcomingView'
 import type { TaskAddInput } from '../shared/api'
 
 const useTaskStore = createTaskStore(window.api)
 const useProjectStore = createProjectStore(window.api)
 const useSectionStore = createSectionStore(window.api)
 const useLabelStore = createLabelStore(window.api)
+const useReminderStore = createReminderStore(window.api)
 
 export default function App(): React.JSX.Element {
   const tasks = useTaskStore((s) => s.tasks)
@@ -64,16 +68,22 @@ export default function App(): React.JSX.Element {
   const removeLabel = useLabelStore((s) => s.remove)
   const setTaskLabels = useLabelStore((s) => s.setTaskLabels)
 
+  const reminders = useReminderStore((s) => s.reminders)
+  const loadReminders = useReminderStore((s) => s.load)
+  const addReminder = useReminderStore((s) => s.add)
+  const removeReminder = useReminderStore((s) => s.remove)
+
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [view, setView] = useState<'list' | 'board'>('list')
+  const [view, setView] = useState<'list' | 'board' | 'today' | 'upcoming'>('list')
 
   useEffect(() => {
     void loadTasks()
     void loadProjects()
     void loadSections()
     void loadLabels()
-  }, [loadTasks, loadProjects, loadSections, loadLabels])
+    void loadReminders()
+  }, [loadTasks, loadProjects, loadSections, loadLabels, loadReminders])
 
   const inbox = selectInbox(projects)
   const favorites = selectFavorites(projects)
@@ -85,6 +95,13 @@ export default function App(): React.JSX.Element {
       setSelectedProjectId(inbox.id)
     }
   }, [selectedProjectId, projectsLoaded, inbox])
+
+  // Handle view transitions
+  useEffect(() => {
+    if (view === 'upcoming') {
+      void loadTasks()
+    }
+  }, [view, loadTasks])
 
   const openTasks = selectedProjectId === null ? [] : selectOpenTasks(tasks, selectedProjectId)
   const projectSections = selectedProjectId === null ? [] : selectSectionsForProject(sections, selectedProjectId)
@@ -165,7 +182,13 @@ export default function App(): React.JSX.Element {
           projects={regularProjects}
           archivedProjects={archivedProjects}
           selectedProjectId={selectedProjectId}
-          onSelect={setSelectedProjectId}
+          view={view}
+          onSelect={(id) => {
+            setSelectedProjectId(id)
+            // Picking a project (or Inbox) leaves the global Today/Upcoming views
+            if (id !== null && (view === 'today' || view === 'upcoming')) setView('list')
+          }}
+          onSelectView={setView}
           onAddProject={(input) => void addProject(input)}
           onRenameProject={(id, name) => void renameProject(id, name)}
           onToggleFavorite={(id) => void toggleProjectFavorite(id)}
@@ -179,10 +202,12 @@ export default function App(): React.JSX.Element {
         />
         <main className="flex flex-1 flex-col overflow-hidden">
           <div className="flex items-center justify-end border-b border-border px-4 py-1.5">
-            <Tabs value={view} onValueChange={(value) => setView(value as 'list' | 'board')}>
+            <Tabs value={view} onValueChange={(value) => setView(value as 'list' | 'board' | 'today' | 'upcoming')}>
               <TabsList>
                 <TabsTrigger value="list">List</TabsTrigger>
                 <TabsTrigger value="board">Board</TabsTrigger>
+                <TabsTrigger value="today">Today</TabsTrigger>
+                <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -205,6 +230,24 @@ export default function App(): React.JSX.Element {
                   onRenameSection={(id, name) => void renameSection(id, name)}
                   onArchiveSection={(id) => void archiveSection(id)}
                   onDeleteSection={(id) => void removeSection(id)}
+                />
+              ) : view === 'today' ? (
+                <TodayView
+                  tasks={openTasks}
+                  selectedTaskId={selectedTaskId}
+                  onSelectTask={(id) => setSelectedTaskId((current) => (current === id ? null : id))}
+                  onComplete={handleComplete}
+                  onDelete={handleDelete}
+                  onMove={(id, targetIndex, scope) => void moveTask(id, targetIndex, scope)}
+                />
+              ) : view === 'upcoming' ? (
+                <UpcomingView
+                  tasks={openTasks}
+                  selectedTaskId={selectedTaskId}
+                  onSelectTask={(id) => setSelectedTaskId((current) => (current === id ? null : id))}
+                  onComplete={handleComplete}
+                  onDelete={handleDelete}
+                  onMove={(id, targetIndex, scope) => void moveTask(id, targetIndex, scope)}
                 />
               ) : (
                 selectedProjectId !== null && (
@@ -234,6 +277,9 @@ export default function App(): React.JSX.Element {
                 allLabels={sortedLabels}
                 assignedLabels={selectLabelsForTask(labels, taskLabels, selectedTask.id)}
                 onSetLabels={(taskId, labelIds) => void setTaskLabels(taskId, labelIds)}
+                taskReminders={selectRemindersForTask(reminders, selectedTask.id)}
+                onAddReminder={(input) => void addReminder(input)}
+                onDeleteReminder={(id) => void removeReminder(id)}
               />
             )}
           </div>

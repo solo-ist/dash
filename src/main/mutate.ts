@@ -3,10 +3,41 @@ import { nanoid } from 'nanoid'
 import { OpSchema, type Op } from '../shared/ops'
 import { insertionKeys, keyAfter } from '../shared/order/keys'
 import { planReorder, type SiblingEntry } from '../shared/order/reorder'
-import type { LabelRow, MutateResult, ProjectRow, SectionRow, TaskLabelRow, TaskRow } from '../shared/types'
+import { nextOccurrence, parseRecur } from '../shared/recur'
+import type {
+  LabelRow,
+  MutateResult,
+  ProjectRow,
+  ReminderRow,
+  SectionRow,
+  TaskLabelRow,
+  TaskRow
+} from '../shared/types'
+
+type MutatedListener = () => void
+let onMutated: MutatedListener | null = null
+
+/** Registered by src/main/index.ts to re-arm the reminder scheduler after any
+ * mutation that could change fire times, without importing electron here. */
+export function setOnMutated(listener: MutatedListener | null): void {
+  onMutated = listener
+}
 
 function nowIso(): string {
   return new Date().toISOString()
+}
+
+/** Current moment as a local wall-time datetime string (never UTC) — matches
+ * src/shared/quickadd/parse.ts's formatDate. Used only as a recurrence base
+ * for `every!` (strict) completions; updated_at/completed_at stay UTC via nowIso(). */
+function localWallNow(): string {
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}:00`
 }
 
 function readTaskRow(db: Database, id: string): TaskRow | undefined {
@@ -99,18 +130,24 @@ function findLabelByNameAnyState(db: Database, name: string): LabelRow | undefin
   return db.prepare('SELECT * FROM labels WHERE name = ?').get(name) as LabelRow | undefined
 }
 
-function findOrCreateInboxProjectId(db: Database, now: string): string {
+// Returns the created row too: MutateResult must reflect every entity an op
+// touched, or the data:changed broadcast under-reports and renderers that
+// didn't initiate the write never learn Inbox exists.
+function findOrCreateInboxProject(
+  db: Database,
+  now: string
+): { id: string; created: ProjectRow | null } {
   const existing = db
     .prepare('SELECT id FROM projects WHERE is_inbox = 1 AND deleted_at IS NULL LIMIT 1')
     .get() as { id: string } | undefined
-  if (existing) return existing.id
+  if (existing) return { id: existing.id, created: null }
 
   const id = nanoid(21)
   db.prepare(
     `INSERT INTO projects (id, name, is_inbox, updated_at)
      VALUES (?, 'Inbox', 1, ?)`
   ).run(id, now)
-  return id
+  return { id, created: requireProjectRow(db, id) }
 }
 
 function findOrCreateLabelByName(db: Database, name: string, now: string): LabelRow {
@@ -156,11 +193,20 @@ function attachTaskLabelsByName(
   return { labels, taskLabels }
 }
 
-function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
+function addTask(
+  db: Database,
+  op: Extract<Op, { type: 'task.add' }>
+): { task: TaskRow; createdProject: ProjectRow | null } {
   const now = nowIso()
   const id = nanoid(21)
-  
-  let projectId = op.projectId ?? findOrCreateInboxProjectId(db, now)
+
+  let createdProject: ProjectRow | null = null
+  let projectId = op.projectId
+  if (projectId === undefined) {
+    const inbox = findOrCreateInboxProject(db, now)
+    projectId = inbox.id
+    createdProject = inbox.created
+  }
   let sectionId = op.sectionId ?? null
   const parentId = op.parentId ?? null
 
@@ -176,9 +222,9 @@ function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
   db.prepare(
     `INSERT INTO tasks (
        id, content, description, project_id, section_id, priority,
-       due_date, due_has_time, recur_string, recur_strict, duration_min,
+       due_date, due_has_time, recur_string, recur_strict, deadline_date, duration_min,
        parent_id, task_order, added_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     op.content,
@@ -190,6 +236,7 @@ function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
     op.dueHasTime ? 1 : 0,
     op.recurString ?? null,
     op.recurStrict ? 1 : 0,
+    op.deadlineDate ?? null,
     op.durationMin ?? null,
     parentId,
     taskOrder,
@@ -197,7 +244,7 @@ function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
     now
   )
 
-  return requireTaskRow(db, id)
+  return { task: requireTaskRow(db, id), createdProject }
 }
 
 function updateTask(db: Database, op: Extract<Op, { type: 'task.update' }>): TaskRow {
@@ -214,6 +261,7 @@ function updateTask(db: Database, op: Extract<Op, { type: 'task.update' }>): Tas
   if (op.dueHasTime !== undefined) fields.push(['due_has_time', op.dueHasTime ? 1 : 0])
   if (op.recurString !== undefined) fields.push(['recur_string', op.recurString])
   if (op.recurStrict !== undefined) fields.push(['recur_strict', op.recurStrict ? 1 : 0])
+  if (op.deadlineDate !== undefined) fields.push(['deadline_date', op.deadlineDate])
   if (op.durationMin !== undefined) fields.push(['duration_min', op.durationMin])
   
   // Handle parentId updates
@@ -260,8 +308,20 @@ function completeTask(db: Database, op: Extract<Op, { type: 'task.complete' }>):
      VALUES (?, ?, ?, ?)`
   ).run(task.id, task.content, task.project_id, now)
 
-  // TODO(recur engine, later issue): when task.recur_string is set, this
-  // should recompute due_date instead of checking the task off for good.
+  const rule = task.recur_string ? parseRecur(task.recur_string) : null
+  if (rule) {
+    const base = rule.strict ? localWallNow() : (task.due_date ?? localWallNow())
+    const next = nextOccurrence(rule, base)
+
+    if (next !== null) {
+      db.prepare(
+        'UPDATE tasks SET due_date = ?, due_has_time = ?, checked = 0, completed_at = NULL, updated_at = ? WHERE id = ?'
+      ).run(next, next.includes('T') ? 1 : 0, now, op.id)
+      return requireTaskRow(db, op.id)
+    }
+    // rule.ends has passed: fall through and complete the task for good.
+  }
+
   db.prepare('UPDATE tasks SET checked = 1, completed_at = ?, updated_at = ? WHERE id = ?').run(
     now,
     now,
@@ -599,6 +659,68 @@ function setTaskLabels(
   return { taskLabels }
 }
 
+function readReminderRow(db: Database, id: string): ReminderRow | undefined {
+  return db.prepare('SELECT * FROM reminders WHERE id = ?').get(id) as ReminderRow | undefined
+}
+
+function requireReminderRow(db: Database, id: string): ReminderRow {
+  const row = readReminderRow(db, id)
+  if (!row || row.deleted_at !== null) throw new Error(`reminder not found: ${id}`)
+  return row
+}
+
+function addReminder(db: Database, op: Extract<Op, { type: 'reminder.create' }>): ReminderRow {
+  requireTaskRow(db, op.taskId)
+  if (op.kind === 'relative' && op.minuteOffset === undefined) {
+    throw new Error('relative reminders require minuteOffset')
+  }
+  if (op.kind === 'absolute' && op.at === undefined) {
+    throw new Error('absolute reminders require at')
+  }
+
+  const now = nowIso()
+  const id = nanoid(21)
+
+  db.prepare(
+    `INSERT INTO reminders (id, task_id, kind, minute_offset, at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(id, op.taskId, op.kind, op.minuteOffset ?? null, op.at ?? null, now)
+
+  return requireReminderRow(db, id)
+}
+
+function updateReminder(db: Database, op: Extract<Op, { type: 'reminder.update' }>): ReminderRow {
+  requireReminderRow(db, op.id)
+  const now = nowIso()
+
+  const fields: Array<[string, unknown]> = []
+  if (op.kind !== undefined) fields.push(['kind', op.kind])
+  if (op.minuteOffset !== undefined) fields.push(['minute_offset', op.minuteOffset])
+  if (op.at !== undefined) fields.push(['at', op.at])
+  // A timing change means the reminder hasn't fired for its new schedule yet.
+  if (op.kind !== undefined || op.minuteOffset !== undefined || op.at !== undefined) {
+    fields.push(['fired_at', null])
+  }
+  fields.push(['updated_at', now])
+
+  const setClause = fields.map(([column]) => `${column} = ?`).join(', ')
+  const values = fields.map(([, value]) => value)
+
+  db.prepare(`UPDATE reminders SET ${setClause} WHERE id = ?`).run(...values, op.id)
+
+  return requireReminderRow(db, op.id)
+}
+
+function deleteReminder(db: Database, op: Extract<Op, { type: 'reminder.delete' }>): ReminderRow {
+  requireReminderRow(db, op.id)
+  const now = nowIso()
+  db.prepare('UPDATE reminders SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, op.id)
+
+  const row = readReminderRow(db, op.id)
+  if (!row) throw new Error(`reminder not found after delete: ${op.id}`)
+  return row
+}
+
 function moveTask(db: Database, op: Extract<Op, { type: 'task.move' }>): TaskRow {
   const task = requireTaskRow(db, op.id)
   const now = nowIso()
@@ -671,12 +793,13 @@ function moveTask(db: Database, op: Extract<Op, { type: 'task.move' }>): TaskRow
 function applyOp(db: Database, op: Op): MutateResult {
   switch (op.type) {
     case 'task.add': {
-      const task = addTask(db, op)
+      const { task, createdProject } = addTask(db, op)
+      const projects = createdProject !== null ? [createdProject] : undefined
       if (op.labels !== undefined && op.labels.length > 0) {
         const { labels, taskLabels } = attachTaskLabelsByName(db, task.id, op.labels)
-        return { tasks: [task], labels, taskLabels }
+        return { tasks: [task], projects, labels, taskLabels }
       }
-      return { tasks: [task] }
+      return { tasks: [task], projects }
     }
     case 'task.update':
       return { tasks: [updateTask(db, op)] }
@@ -722,6 +845,12 @@ function applyOp(db: Database, op: Op): MutateResult {
       const { label, taskLabels } = deleteLabel(db, op)
       return { labels: [label], taskLabels }
     }
+    case 'reminder.create':
+      return { reminders: [addReminder(db, op)] }
+    case 'reminder.update':
+      return { reminders: [updateReminder(db, op)] }
+    case 'reminder.delete':
+      return { reminders: [deleteReminder(db, op)] }
     default: {
       const exhaustive: never = op
       throw new Error(`mutate: unknown op ${JSON.stringify(exhaustive)}`)
@@ -732,5 +861,7 @@ function applyOp(db: Database, op: Op): MutateResult {
 export function mutate(db: Database, op: Op): MutateResult {
   const validated = OpSchema.parse(op)
   const run = db.transaction((): MutateResult => applyOp(db, validated))
-  return run()
+  const result = run()
+  onMutated?.()
+  return result
 }

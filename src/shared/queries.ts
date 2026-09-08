@@ -1,12 +1,15 @@
 import { z } from 'zod'
-import type { LabelRow, ProjectRow, SectionRow, TaskLabelRow, TaskRow } from './types'
+import type { LabelRow, ProjectRow, ReminderRow, SectionRow, TaskLabelRow, TaskRow } from './types'
 
 export const QueryParamsSchemas = {
   'tasks.list': z.object({ projectId: z.string().optional() }),
   'projects.list': z.object({}),
   'sections.list': z.object({ projectId: z.string().optional() }),
   'labels.list': z.object({}),
-  'taskLabels.list': z.object({})
+  'taskLabels.list': z.object({}),
+  'tasks.today': z.object({ today: z.string() }),
+  'tasks.upcoming': z.object({ today: z.string(), horizonDays: z.number() }),
+  'reminders.list': z.object({})
 } as const
 
 export interface QueryResultTypes {
@@ -15,6 +18,9 @@ export interface QueryResultTypes {
   'sections.list': SectionRow[]
   'labels.list': LabelRow[]
   'taskLabels.list': TaskLabelRow[]
+  'tasks.today': TaskRow[],
+  'tasks.upcoming': TaskRow[]
+  'reminders.list': ReminderRow[]
 }
 
 export type QueryName = keyof typeof QueryParamsSchemas

@@ -1,10 +1,12 @@
-import { app, shell, BrowserWindow, Menu } from 'electron'
+import { app, shell, BrowserWindow, Menu, Notification, powerMonitor } from 'electron'
 import { join } from 'path'
 import type Database from 'better-sqlite3'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { openDatabase } from './db/open'
 import { migrate } from './db/migrate'
 import { registerIpc } from './ipc'
+import { setOnMutated } from './mutate'
+import { createReminderScheduler } from './reminders/scheduler'
 
 // Test hook: e2e runs point userData at a temp dir so they never touch the
 // real dash.db. Must run before any app.getPath('userData') call.
@@ -90,6 +92,16 @@ app.whenReady().then(() => {
   db = openDatabase(join(app.getPath('userData'), 'dash.db'))
   migrate(db)
   registerIpc(db)
+
+  const reminderScheduler = createReminderScheduler({
+    db,
+    notify: (title, body) => {
+      new Notification({ title, body }).show()
+    }
+  })
+  setOnMutated(() => reminderScheduler.rearm())
+  reminderScheduler.rearm()
+  powerMonitor.on('resume', () => reminderScheduler.rearm())
 
   buildMenu()
   createWindow()

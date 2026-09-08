@@ -3,11 +3,11 @@ import { openDatabase } from './open'
 import { migrate } from './migrate'
 
 describe('migrate', () => {
-  it('applies migration 001 and sets user_version to 1', () => {
+  it('applies all migrations and sets user_version to the latest version', () => {
     const db = openDatabase(':memory:')
     migrate(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(1)
+    expect(db.pragma('user_version', { simple: true })).toBe(2)
 
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
@@ -37,7 +37,19 @@ describe('migrate', () => {
     const db = openDatabase(':memory:')
     migrate(db)
     expect(() => migrate(db)).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(1)
+    expect(db.pragma('user_version', { simple: true })).toBe(2)
+    db.close()
+  })
+
+  it('adds the reminders.fired_at column', () => {
+    const db = openDatabase(':memory:')
+    migrate(db)
+
+    const columns = (
+      db.prepare('PRAGMA table_info(reminders)').all() as Array<{ name: string }>
+    ).map((row) => row.name)
+    expect(columns).toContain('fired_at')
+
     db.close()
   })
 })

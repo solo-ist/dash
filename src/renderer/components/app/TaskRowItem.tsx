@@ -1,44 +1,22 @@
+import { Checkbox } from '../ui/checkbox'
 import { cn } from '../../lib/utils'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger
-} from '../ui/context-menu'
+import { todayLocalDate, isOverdue, datePart } from '../../lib/dates'
 import type { LabelRow, TaskRow } from '../../../shared/types'
-
-const PRIORITY_RING: Record<number, string> = {
-  1: 'border-red-400 text-red-400',
-  2: 'border-orange-400 text-orange-400',
-  3: 'border-blue-400 text-blue-400',
-  4: 'border-muted-foreground text-muted-foreground'
-}
-
-function priorityRing(priority: number): string {
-  return PRIORITY_RING[priority] ?? PRIORITY_RING[4]
-}
-
-const MAX_INDENT_DEPTH = 3
-
-const DEPTH_PADDING: Record<number, string> = {
-  0: 'pl-4',
-  1: 'pl-8',
-  2: 'pl-12',
-  3: 'pl-16'
-}
+import type { SubtaskCounts, TaskMoveScope } from '../../stores/taskStore'
 
 export type DropPosition = 'before' | 'after'
 
-export interface TaskRowItemProps {
+interface TaskRowItemProps {
   task: TaskRow
-  labels?: LabelRow[]
-  selected?: boolean
   depth?: number
-  subtaskCount?: { total: number; completed: number }
+  subtaskCount?: SubtaskCounts
+  labels?: LabelRow[]
+  selected: boolean
   dropIndicator?: DropPosition | null
+  onSelect?: (id: string) => void
   onComplete: (id: string) => void
   onDelete: (id: string) => void
-  onSelect?: (id: string) => void
+  onMove?: (id: string, targetIndex: number, scope?: TaskMoveScope) => void
   onDragStartRow?: (id: string) => void
   onDragOverRow?: (id: string, position: DropPosition) => void
   onDropRow?: (id: string) => void
@@ -47,101 +25,115 @@ export interface TaskRowItemProps {
 
 export function TaskRowItem({
   task,
-  labels = [],
-  selected = false,
   depth = 0,
   subtaskCount,
+  labels,
+  selected,
   dropIndicator = null,
+  onSelect,
   onComplete,
   onDelete,
-  onSelect,
   onDragStartRow,
   onDragOverRow,
   onDropRow,
   onDragEndRow
 }: TaskRowItemProps): React.JSX.Element {
-  const indentClass = DEPTH_PADDING[Math.min(depth, MAX_INDENT_DEPTH)]
+  const today = todayLocalDate()
+  const isOverdueTask = task.due_date !== null && isOverdue(task.due_date, today)
+  const isTodayTask = task.due_date !== null && datePart(task.due_date) === today
+  const isDeadlinePast = task.deadline_date !== null && datePart(task.deadline_date) < today
+
+  function handleCheckboxChange(checked: boolean): void {
+    if (checked) onComplete(task.id)
+  }
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
-          className="relative"
-          draggable
-          onDragStart={(event) => {
-            event.dataTransfer.setData('text/plain', task.id)
-            event.dataTransfer.effectAllowed = 'move'
-            onDragStartRow?.(task.id)
-          }}
-          onDragOver={(event) => {
-            event.preventDefault()
-            const rect = event.currentTarget.getBoundingClientRect()
-            const isTopHalf = event.clientY < rect.top + rect.height / 2
-            onDragOverRow?.(task.id, isTopHalf ? 'before' : 'after')
-          }}
-          onDrop={(event) => {
-            event.preventDefault()
-            onDropRow?.(task.id)
-          }}
-          onDragEnd={() => onDragEndRow?.()}
-        >
-          {dropIndicator === 'before' && (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 bg-primary" />
-          )}
-          <div
-            onClick={() => onSelect?.(task.id)}
+    <div
+      className={cn(
+        'group relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent',
+        selected && 'bg-accent',
+        task.checked === 1 && 'opacity-60'
+      )}
+      style={depth > 0 ? { paddingLeft: `${8 + depth * 16}px` } : undefined}
+      draggable={onDragStartRow !== undefined}
+      onClick={() => onSelect?.(task.id)}
+      onDragStart={(event) => {
+        event.stopPropagation()
+        onDragStartRow?.(task.id)
+      }}
+      onDragOver={(event) => {
+        if (onDragOverRow === undefined) return
+        event.preventDefault()
+        event.stopPropagation()
+        const rect = event.currentTarget.getBoundingClientRect()
+        const isTopHalf = event.clientY < rect.top + rect.height / 2
+        onDragOverRow(task.id, isTopHalf ? 'before' : 'after')
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onDropRow?.(task.id)
+      }}
+      onDragEnd={() => onDragEndRow?.()}
+    >
+      {dropIndicator === 'before' && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-primary" />
+      )}
+      <Checkbox
+        checked={task.checked === 1}
+        onCheckedChange={handleCheckboxChange}
+        className="shrink-0"
+        aria-label={task.checked === 1 ? 'Uncomplete task' : 'Complete task'}
+      />
+      <div className="min-w-0 flex-1">
+        <span className={cn(task.checked === 1 && 'line-through', isOverdueTask && 'text-red-500')}>
+          {task.content}
+        </span>
+        {task.due_date !== null && (
+          <span className={cn('ml-2 text-xs', isOverdueTask ? 'text-red-500' : 'text-muted-foreground')}>
+            {isTodayTask ? 'Today' : datePart(task.due_date)}
+          </span>
+        )}
+        {task.deadline_date !== null && (
+          <span
             className={cn(
-              'flex items-center gap-3 border-b border-border py-2.5 pr-4 last:border-b-0',
-              indentClass,
-              selected && 'bg-accent'
+              'ml-2 inline-flex items-center gap-0.5 rounded-sm border px-1 text-xs',
+              isDeadlinePast ? 'border-destructive text-destructive' : 'border-border text-muted-foreground'
             )}
           >
-            <button
-              type="button"
-              aria-label="Complete task"
-              onClick={(event) => {
-                event.stopPropagation()
-                onComplete(task.id)
-              }}
-              className={cn(
-                'h-4 w-4 shrink-0 rounded-full border-2 transition-colors hover:bg-accent',
-                priorityRing(task.priority)
-              )}
-            />
-            <span className="flex-1 truncate text-sm text-foreground">{task.content}</span>
-            {subtaskCount !== undefined && subtaskCount.total > 0 && (
-              <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {subtaskCount.completed}/{subtaskCount.total}
-              </span>
-            )}
-            {task.due_date !== null && (
-              <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {task.due_date}
-              </span>
-            )}
+            ◆ {datePart(task.deadline_date)}
+          </span>
+        )}
+        {task.duration_min !== null && (
+          <span className="ml-2 text-xs text-muted-foreground">{task.duration_min} min</span>
+        )}
+        {subtaskCount !== undefined && subtaskCount.total > 0 && (
+          <span className="ml-2 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+            {subtaskCount.completed}/{subtaskCount.total}
+          </span>
+        )}
+        {labels !== undefined && labels.length > 0 && (
+          <span className="ml-2 inline-flex items-center gap-1">
             {labels.map((label) => (
-              <span
-                key={label.id}
-                className="flex shrink-0 items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-xs text-muted-foreground"
-              >
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: label.color }}
-                />
-                {label.name}
-              </span>
+              <span key={label.id} className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: label.color }} />
             ))}
-          </div>
-          {dropIndicator === 'after' && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-0.5 bg-primary" />
-          )}
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem className="text-destructive" onSelect={() => onDelete(task.id)}>
-          Delete
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+          </span>
+        )}
+      </div>
+      <button
+        type="button"
+        aria-label="Delete task"
+        onClick={(event) => {
+          event.stopPropagation()
+          onDelete(task.id)
+        }}
+        className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+      >
+        ×
+      </button>
+      {dropIndicator === 'after' && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
+      )}
+    </div>
   )
 }

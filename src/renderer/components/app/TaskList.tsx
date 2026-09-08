@@ -40,7 +40,7 @@ function siblingScopeIds(tasks: TaskRow[], parentId: string | null, sectionId: s
 
 export interface TaskListProps {
   tasks: TaskRow[]
-  sections: SectionRow[]
+  sections?: SectionRow[]
   error: string | null
   selectedTaskId?: string | null
   labelsByTaskId?: Record<string, LabelRow[]>
@@ -48,10 +48,10 @@ export interface TaskListProps {
   onDelete: (id: string) => void
   onSelect?: (id: string) => void
   onMove?: (id: string, targetIndex: number, scope?: TaskMoveScope) => void
-  onAddSection: (name: string) => void
-  onRenameSection: (id: string, name: string) => void
-  onArchiveSection: (id: string) => void
-  onDeleteSection: (id: string) => void
+  onAddSection?: (name: string) => void
+  onRenameSection?: (id: string, name: string) => void
+  onArchiveSection?: (id: string) => void
+  onDeleteSection?: (id: string) => void
 }
 
 function SectionHeader({
@@ -123,7 +123,7 @@ function SectionHeader({
 
 export function TaskList({
   tasks,
-  sections,
+  sections = [],
   error,
   selectedTaskId = null,
   labelsByTaskId = {},
@@ -132,9 +132,9 @@ export function TaskList({
   onSelect,
   onMove,
   onAddSection,
-  onRenameSection,
-  onArchiveSection,
-  onDeleteSection
+  onRenameSection = () => {},
+  onArchiveSection = () => {},
+  onDeleteSection = () => {}
 }: TaskListProps): React.JSX.Element {
   const [addingSection, setAddingSection] = useState(false)
   const [newSectionName, setNewSectionName] = useState('')
@@ -143,7 +143,7 @@ export function TaskList({
 
   function commitAddSection(): void {
     const trimmed = newSectionName.trim()
-    if (trimmed.length > 0) onAddSection(trimmed)
+    if (trimmed.length > 0) onAddSection?.(trimmed)
     setNewSectionName('')
     setAddingSection(false)
   }
@@ -264,6 +264,7 @@ export function TaskList({
           )}
         </ScrollArea>
       )}
+      {onAddSection !== undefined && (
       <div className="border-t border-border px-4 py-2">
         {addingSection ? (
           <Input
@@ -294,6 +295,7 @@ export function TaskList({
           </button>
         )}
       </div>
+      )}
     </div>
   )
 }

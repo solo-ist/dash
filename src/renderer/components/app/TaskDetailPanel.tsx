@@ -12,8 +12,11 @@ import {
 } from '../ui/dropdown-menu'
 import { cn } from '../../lib/utils'
 import { parseBlocks, type BlockToken, type InlineToken } from '../../lib/markdown'
-import type { LabelRow, TaskRow } from '../../../shared/types'
+import type { LabelRow, ReminderRow, TaskRow } from '../../../shared/types'
 import type { TaskUpdatePatch } from '../../stores/taskStore'
+import type { ReminderAddInput } from '../../stores/reminderStore'
+
+const REMINDER_PRESETS_MIN = [0, 10, 30, 60]
 
 const PRIORITY_TEXT: Record<number, string> = {
   1: 'text-red-500',
@@ -54,6 +57,9 @@ export interface TaskDetailPanelProps {
   allLabels?: LabelRow[]
   assignedLabels?: LabelRow[]
   onSetLabels?: (taskId: string, labelIds: string[]) => void
+  taskReminders?: ReminderRow[]
+  onAddReminder?: (input: ReminderAddInput) => void
+  onDeleteReminder?: (id: string) => void
 }
 
 function InlineTokens({ tokens }: { tokens: InlineToken[] }): React.JSX.Element {
@@ -163,13 +169,18 @@ export function TaskDetailPanel({
   onAddSubtask,
   allLabels = [],
   assignedLabels = [],
-  onSetLabels
+  onSetLabels,
+  taskReminders = [],
+  onAddReminder,
+  onDeleteReminder
 }: TaskDetailPanelProps): React.JSX.Element {
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.content)
   const [editingDescription, setEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState(task.description)
   const [newSubtaskContent, setNewSubtaskContent] = useState('')
+  const [reminderDate, setReminderDate] = useState('')
+  const [reminderTime, setReminderTime] = useState('')
 
   const parentTask =
     task.parent_id !== null ? tasks.find((candidate) => candidate.id === task.parent_id) ?? null : null
@@ -189,6 +200,18 @@ export function TaskDetailPanel({
       ? assignedIds.filter((id) => id !== labelId)
       : [...assignedIds, labelId]
     onSetLabels?.(task.id, nextIds)
+  }
+
+  function addRelativeReminder(minuteOffset: number): void {
+    onAddReminder?.({ taskId: task.id, kind: 'relative', minuteOffset })
+  }
+
+  function commitAddAbsoluteReminder(): void {
+    if (reminderDate.length > 0 && reminderTime.length > 0) {
+      onAddReminder?.({ taskId: task.id, kind: 'absolute', at: `${reminderDate} ${reminderTime}` })
+      setReminderDate('')
+      setReminderTime('')
+    }
   }
 
   function commitAddSubtask(): void {
@@ -356,17 +379,80 @@ export function TaskDetailPanel({
 
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Due date</span>
-            <span className="text-sm text-foreground">
-              {task.due_date !== null ? task.due_date : <span className="text-muted-foreground">No date</span>}
-            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={task.due_date ? task.due_date.substring(0, 10) : ''}
+                onChange={(e) => {
+                  const newDate = e.target.value
+                  if (newDate) {
+                    onUpdate({ dueDate: newDate, dueHasTime: false })
+                  } else {
+                    onUpdate({ dueDate: null, dueHasTime: false })
+                  }
+                }}
+                className="h-5 w-24 rounded border border-border bg-transparent px-1 py-0 text-sm text-foreground"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0"
+                onClick={() => onUpdate({ dueDate: null, dueHasTime: false })}
+                aria-label="Clear due date"
+              >
+                ×
+              </Button>
+            </div>
           </div>
 
-          {task.duration_min !== null && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Duration</span>
-              <span className="text-sm text-foreground">{task.duration_min} min</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Deadline</span>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={task.deadline_date ? task.deadline_date.substring(0, 10) : ''}
+                onChange={(e) => {
+                  const newDate = e.target.value
+                  onUpdate({ deadlineDate: newDate.length > 0 ? newDate : null })
+                }}
+                className="h-5 w-24 rounded border border-border bg-transparent px-1 py-0 text-sm text-foreground"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0"
+                onClick={() => onUpdate({ deadlineDate: null })}
+                aria-label="Clear deadline"
+              >
+                ×
+              </Button>
             </div>
-          )}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Duration</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={task.duration_min ?? ''}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  if (raw.trim().length === 0) {
+                    onUpdate({ durationMin: null })
+                    return
+                  }
+                  const parsed = Number.parseInt(raw, 10)
+                  if (Number.isInteger(parsed) && parsed > 0) {
+                    onUpdate({ durationMin: parsed })
+                  }
+                }}
+                className="h-5 w-14 rounded border border-border bg-transparent px-1 py-0 text-sm text-foreground"
+              />
+              <span className="text-xs text-muted-foreground">min</span>
+            </div>
+          </div>
 
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Labels</span>
@@ -402,6 +488,67 @@ export function TaskDetailPanel({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+        </div>
+
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <span className="text-xs text-muted-foreground">Reminders</span>
+          {taskReminders.map((reminder) => (
+            <div key={reminder.id} className="flex items-center justify-between">
+              <span className="text-sm text-foreground">
+                {reminder.kind === 'relative'
+                  ? reminder.minute_offset === 0
+                    ? 'At due time'
+                    : `${reminder.minute_offset ?? 0} min before due`
+                  : reminder.at}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0 text-destructive"
+                onClick={() => onDeleteReminder?.(reminder.id)}
+                aria-label="Delete reminder"
+              >
+                ×
+              </Button>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-1">
+            {REMINDER_PRESETS_MIN.map((minutes) => (
+              <Button
+                key={minutes}
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                disabled={task.due_date === null}
+                onClick={() => addRelativeReminder(minutes)}
+              >
+                {minutes === 0 ? 'At due time' : `${minutes}m before`}
+              </Button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              value={reminderDate}
+              onChange={(e) => setReminderDate(e.target.value)}
+              className="h-5 w-24 rounded border border-border bg-transparent px-1 py-0 text-sm text-foreground"
+            />
+            <input
+              type="time"
+              value={reminderTime}
+              onChange={(e) => setReminderTime(e.target.value)}
+              className="h-5 w-20 rounded border border-border bg-transparent px-1 py-0 text-sm text-foreground"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              disabled={reminderDate.length === 0 || reminderTime.length === 0}
+              onClick={commitAddAbsoluteReminder}
+            >
+              Add
+            </Button>
           </div>
         </div>
 

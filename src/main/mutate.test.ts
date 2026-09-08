@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type Database from 'better-sqlite3'
 import { openDatabase } from './db/open'
 import { migrate } from './db/migrate'
@@ -12,6 +12,17 @@ describe('mutate', () => {
   beforeEach(() => {
     db = openDatabase(':memory:')
     migrate(db)
+  })
+
+  it('reports a lazily created Inbox in MutateResult so the broadcast carries it', () => {
+    // Fresh DB: first projectless task.add creates Inbox — the result must
+    // include it, or data:changed under-reports and renderers/writers that
+    // didn't initiate the add never learn the project exists.
+    const first = mutate(db, { type: 'task.add', content: 'first' })
+    expect(first.projects?.[0]?.is_inbox).toBe(1)
+
+    const second = mutate(db, { type: 'task.add', content: 'second' })
+    expect(second.projects).toBeUndefined()
   })
 
   it('adds and lists a project', () => {
@@ -216,6 +227,139 @@ describe('mutate', () => {
 
     const allSections = listSections(db)
     expect(allSections.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('recurring completions', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openDatabase(':memory:')
+    migrate(db)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('advances due_date from the OLD due date, leaves checked=0, and appends exactly one completion', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'Water plants',
+      dueDate: '2026-01-15',
+      dueHasTime: false,
+      recurString: 'every day'
+    })
+    const id = added.tasks![0].id
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.due_date).toBe('2026-01-16')
+    expect(task.checked).toBe(0)
+    expect(task.completed_at).toBeNull()
+
+    const completions = db.prepare('SELECT * FROM completions WHERE task_id = ?').all(id) as Array<{
+      task_id: string
+    }>
+    expect(completions).toHaveLength(1)
+  })
+
+  it('every! (strict) recomputes the next due date from now, not from the old due date', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 5, 1, 10, 0, 0))
+
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'Backup',
+      dueDate: '2026-01-01',
+      dueHasTime: false,
+      recurString: 'every! 2 weeks',
+      recurStrict: true
+    })
+    const id = added.tasks![0].id
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    // base = now (2026-06-01), not the old due date (2026-01-01)
+    expect(task.due_date).toBe('2026-06-15')
+    expect(task.checked).toBe(0)
+  })
+
+  it('completes for good once a passed "ending" bound is reached', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'Daily standup',
+      dueDate: '2026-09-10',
+      dueHasTime: false,
+      recurString: 'every day ending 2026-09-10'
+    })
+    const id = added.tasks![0].id
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.checked).toBe(1)
+    expect(task.completed_at).toBeTruthy()
+    expect(task.due_date).toBe('2026-09-10')
+
+    const completions = db.prepare('SELECT * FROM completions WHERE task_id = ?').all(id) as Array<{
+      task_id: string
+    }>
+    expect(completions).toHaveLength(1)
+  })
+
+  it('never moves deadline_date when recomputing due_date', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'File taxes',
+      dueDate: '2026-03-01',
+      dueHasTime: false,
+      recurString: 'every month'
+    })
+    const id = added.tasks![0].id
+    db.prepare('UPDATE tasks SET deadline_date = ? WHERE id = ?').run('2026-04-15', id)
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.due_date).toBe('2026-04-01')
+    expect(task.deadline_date).toBe('2026-04-15')
+  })
+
+  it('falls back to normal completion for a corrupt recur_string', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'Bad recur',
+      dueDate: '2026-01-15',
+      dueHasTime: false
+    })
+    const id = added.tasks![0].id
+    db.prepare('UPDATE tasks SET recur_string = ? WHERE id = ?').run('not a real recur string', id)
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.checked).toBe(1)
+    expect(task.completed_at).toBeTruthy()
+  })
+
+  it('leaves non-recurring completion behavior unchanged', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'One-off',
+      dueDate: '2026-01-15',
+      dueHasTime: false
+    })
+    const id = added.tasks![0].id
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.checked).toBe(1)
+    expect(task.completed_at).toBeTruthy()
+    expect(task.due_date).toBe('2026-01-15')
   })
 })
 
@@ -591,5 +735,113 @@ describe('task ordering', () => {
 
   it('task.move with an unknown id throws', () => {
     expect(() => mutate(db, { type: 'task.move', id: 'missing', targetIndex: 0 })).toThrow()
+  })
+})
+
+describe('reminders', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openDatabase(':memory:')
+    migrate(db)
+  })
+
+  it('creates a relative reminder', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+
+    const result = mutate(db, {
+      type: 'reminder.create',
+      taskId: task.id,
+      kind: 'relative',
+      minuteOffset: 30
+    })
+
+    const reminder = result.reminders?.[0]
+    expect(reminder?.task_id).toBe(task.id)
+    expect(reminder?.kind).toBe('relative')
+    expect(reminder?.minute_offset).toBe(30)
+    expect(reminder?.at).toBeNull()
+    expect(reminder?.fired_at).toBeNull()
+  })
+
+  it('creates an absolute reminder', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+
+    const result = mutate(db, {
+      type: 'reminder.create',
+      taskId: task.id,
+      kind: 'absolute',
+      at: '2026-01-01 09:00'
+    })
+
+    const reminder = result.reminders?.[0]
+    expect(reminder?.kind).toBe('absolute')
+    expect(reminder?.at).toBe('2026-01-01 09:00')
+    expect(reminder?.minute_offset).toBeNull()
+  })
+
+  it('rejects a relative reminder without minuteOffset', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+
+    expect(() =>
+      mutate(db, { type: 'reminder.create', taskId: task.id, kind: 'relative' })
+    ).toThrow()
+  })
+
+  it('rejects an absolute reminder without at', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+
+    expect(() =>
+      mutate(db, { type: 'reminder.create', taskId: task.id, kind: 'absolute' })
+    ).toThrow()
+  })
+
+  it('rejects creating a reminder on a nonexistent task', () => {
+    expect(() =>
+      mutate(db, { type: 'reminder.create', taskId: 'missing', kind: 'relative', minuteOffset: 10 })
+    ).toThrow()
+  })
+
+  it('updates a reminder and clears fired_at when the timing changes', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+    const created = mutate(db, {
+      type: 'reminder.create',
+      taskId: task.id,
+      kind: 'absolute',
+      at: '2026-01-01 09:00'
+    }).reminders![0]
+
+    db.prepare('UPDATE reminders SET fired_at = ? WHERE id = ?').run('2026-01-01T09:00:00.000Z', created.id)
+
+    const updated = mutate(db, { type: 'reminder.update', id: created.id, at: '2026-01-02 09:00' })
+
+    expect(updated.reminders?.[0].at).toBe('2026-01-02 09:00')
+    expect(updated.reminders?.[0].fired_at).toBeNull()
+  })
+
+  it('tombstones a deleted reminder instead of removing the row', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+    const created = mutate(db, {
+      type: 'reminder.create',
+      taskId: task.id,
+      kind: 'relative',
+      minuteOffset: 15
+    }).reminders![0]
+
+    const deleted = mutate(db, { type: 'reminder.delete', id: created.id })
+    expect(deleted.reminders?.[0].deleted_at).toBeTruthy()
+
+    const raw = db.prepare('SELECT deleted_at FROM reminders WHERE id = ?').get(created.id) as {
+      deleted_at: string | null
+    }
+    expect(raw.deleted_at).toBeTruthy()
+  })
+
+  it('reminder.update on an unknown id throws', () => {
+    expect(() => mutate(db, { type: 'reminder.update', id: 'missing', minuteOffset: 5 })).toThrow()
+  })
+
+  it('reminder.delete on an unknown id throws', () => {
+    expect(() => mutate(db, { type: 'reminder.delete', id: 'missing' })).toThrow()
   })
 })

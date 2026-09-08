@@ -11,6 +11,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '../ui/context-menu'
+import { Calendar } from 'lucide-react'
 import type { LabelRow, ProjectRow } from '../../../shared/types'
 
 export interface SidebarProps {
@@ -19,7 +20,9 @@ export interface SidebarProps {
   projects: ProjectRow[]
   archivedProjects: ProjectRow[]
   selectedProjectId: string | null
-  onSelect: (projectId: string) => void
+  view: 'list' | 'board' | 'today' | 'upcoming'
+  onSelect: (projectId: string | null) => void
+  onSelectView: (view: 'today' | 'upcoming') => void
   onAddProject: (input: { name: string; color?: string }) => void
   onRenameProject: (id: string, name: string) => void
   onToggleFavorite: (id: string) => void
@@ -140,7 +143,9 @@ export function Sidebar({
   projects,
   archivedProjects,
   selectedProjectId,
+  view,
   onSelect,
+  onSelectView,
   onAddProject,
   onRenameProject,
   onToggleFavorite,
@@ -192,6 +197,16 @@ export function Sidebar({
     setDialog(null)
   }
 
+  function handleSelectToday(): void {
+    onSelect(null)
+    onSelectView('today')
+  }
+
+  function handleSelectUpcoming(): void {
+    onSelect(null)
+    onSelectView('upcoming')
+  }
+
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-border">
       <ScrollArea className="flex-1 px-2 py-3">
@@ -206,6 +221,35 @@ export function Sidebar({
             />
           )}
         </div>
+
+        <Separator className="my-3" />
+        <button
+          type="button"
+          onClick={handleSelectToday}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+            view === 'today'
+              ? 'bg-accent text-accent-foreground'
+              : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
+          )}
+        >
+          <Calendar className="h-4 w-4" />
+          <span>Today</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleSelectUpcoming}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+            view === 'upcoming'
+              ? 'bg-accent text-accent-foreground'
+              : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
+          )}
+        >
+          <Calendar className="h-4 w-4" />
+          <span>Upcoming</span>
+        </button>
 
         {favorites.length > 0 && (
           <>

@@ -64,10 +64,22 @@ export interface TaskLabelRow {
   deleted_at: string | null
 }
 
+export interface ReminderRow {
+  id: string
+  task_id: string
+  kind: string
+  minute_offset: number | null
+  at: string | null
+  fired_at: string | null
+  updated_at: string
+  deleted_at: string | null
+}
+
 export interface MutateResult {
   tasks?: TaskRow[]
   projects?: ProjectRow[]
   sections?: SectionRow[]
   labels?: LabelRow[]
   taskLabels?: TaskLabelRow[]
+  reminders?: ReminderRow[]
 }
