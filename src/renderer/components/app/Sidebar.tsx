@@ -20,7 +20,9 @@ export interface SidebarProps {
   projects: ProjectRow[]
   archivedProjects: ProjectRow[]
   selectedProjectId: string | null
+  view: 'list' | 'board' | 'today' | 'upcoming'
   onSelect: (projectId: string | null) => void
+  onSelectView: (view: 'today' | 'upcoming') => void
   onAddProject: (input: { name: string; color?: string }) => void
   onRenameProject: (id: string, name: string) => void
   onToggleFavorite: (id: string) => void
@@ -141,7 +143,9 @@ export function Sidebar({
   projects,
   archivedProjects,
   selectedProjectId,
+  view,
   onSelect,
+  onSelectView,
   onAddProject,
   onRenameProject,
   onToggleFavorite,
@@ -194,13 +198,13 @@ export function Sidebar({
   }
 
   function handleSelectToday(): void {
-    // For Today view, we don't select any project
     onSelect(null)
+    onSelectView('today')
   }
 
   function handleSelectUpcoming(): void {
-    // For Upcoming view, we don't select any project
     onSelect(null)
+    onSelectView('upcoming')
   }
 
   return (
@@ -224,7 +228,7 @@ export function Sidebar({
           onClick={handleSelectToday}
           className={cn(
             'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-            selectedProjectId === null
+            view === 'today'
               ? 'bg-accent text-accent-foreground'
               : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
           )}
@@ -238,7 +242,7 @@ export function Sidebar({
           onClick={handleSelectUpcoming}
           className={cn(
             'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-            selectedProjectId === null
+            view === 'upcoming'
               ? 'bg-accent text-accent-foreground'
               : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
           )}

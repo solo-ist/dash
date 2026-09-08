@@ -182,7 +182,13 @@ export default function App(): React.JSX.Element {
           projects={regularProjects}
           archivedProjects={archivedProjects}
           selectedProjectId={selectedProjectId}
-          onSelect={setSelectedProjectId}
+          view={view}
+          onSelect={(id) => {
+            setSelectedProjectId(id)
+            // Picking a project (or Inbox) leaves the global Today/Upcoming views
+            if (id !== null && (view === 'today' || view === 'upcoming')) setView('list')
+          }}
+          onSelectView={setView}
           onAddProject={(input) => void addProject(input)}
           onRenameProject={(id, name) => void renameProject(id, name)}
           onToggleFavorite={(id) => void toggleProjectFavorite(id)}

@@ -130,18 +130,24 @@ function findLabelByNameAnyState(db: Database, name: string): LabelRow | undefin
   return db.prepare('SELECT * FROM labels WHERE name = ?').get(name) as LabelRow | undefined
 }
 
-function findOrCreateInboxProjectId(db: Database, now: string): string {
+// Returns the created row too: MutateResult must reflect every entity an op
+// touched, or the data:changed broadcast under-reports and renderers that
+// didn't initiate the write never learn Inbox exists.
+function findOrCreateInboxProject(
+  db: Database,
+  now: string
+): { id: string; created: ProjectRow | null } {
   const existing = db
     .prepare('SELECT id FROM projects WHERE is_inbox = 1 AND deleted_at IS NULL LIMIT 1')
     .get() as { id: string } | undefined
-  if (existing) return existing.id
+  if (existing) return { id: existing.id, created: null }
 
   const id = nanoid(21)
   db.prepare(
     `INSERT INTO projects (id, name, is_inbox, updated_at)
      VALUES (?, 'Inbox', 1, ?)`
   ).run(id, now)
-  return id
+  return { id, created: requireProjectRow(db, id) }
 }
 
 function findOrCreateLabelByName(db: Database, name: string, now: string): LabelRow {
@@ -187,11 +193,20 @@ function attachTaskLabelsByName(
   return { labels, taskLabels }
 }
 
-function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
+function addTask(
+  db: Database,
+  op: Extract<Op, { type: 'task.add' }>
+): { task: TaskRow; createdProject: ProjectRow | null } {
   const now = nowIso()
   const id = nanoid(21)
-  
-  let projectId = op.projectId ?? findOrCreateInboxProjectId(db, now)
+
+  let createdProject: ProjectRow | null = null
+  let projectId = op.projectId
+  if (projectId === undefined) {
+    const inbox = findOrCreateInboxProject(db, now)
+    projectId = inbox.id
+    createdProject = inbox.created
+  }
   let sectionId = op.sectionId ?? null
   const parentId = op.parentId ?? null
 
@@ -229,7 +244,7 @@ function addTask(db: Database, op: Extract<Op, { type: 'task.add' }>): TaskRow {
     now
   )
 
-  return requireTaskRow(db, id)
+  return { task: requireTaskRow(db, id), createdProject }
 }
 
 function updateTask(db: Database, op: Extract<Op, { type: 'task.update' }>): TaskRow {
@@ -778,12 +793,13 @@ function moveTask(db: Database, op: Extract<Op, { type: 'task.move' }>): TaskRow
 function applyOp(db: Database, op: Op): MutateResult {
   switch (op.type) {
     case 'task.add': {
-      const task = addTask(db, op)
+      const { task, createdProject } = addTask(db, op)
+      const projects = createdProject !== null ? [createdProject] : undefined
       if (op.labels !== undefined && op.labels.length > 0) {
         const { labels, taskLabels } = attachTaskLabelsByName(db, task.id, op.labels)
-        return { tasks: [task], labels, taskLabels }
+        return { tasks: [task], projects, labels, taskLabels }
       }
-      return { tasks: [task] }
+      return { tasks: [task], projects }
     }
     case 'task.update':
       return { tasks: [updateTask(db, op)] }

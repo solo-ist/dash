@@ -14,6 +14,17 @@ describe('mutate', () => {
     migrate(db)
   })
 
+  it('reports a lazily created Inbox in MutateResult so the broadcast carries it', () => {
+    // Fresh DB: first projectless task.add creates Inbox — the result must
+    // include it, or data:changed under-reports and renderers/writers that
+    // didn't initiate the add never learn the project exists.
+    const first = mutate(db, { type: 'task.add', content: 'first' })
+    expect(first.projects?.[0]?.is_inbox).toBe(1)
+
+    const second = mutate(db, { type: 'task.add', content: 'second' })
+    expect(second.projects).toBeUndefined()
+  })
+
   it('adds and lists a project', () => {
     const result = mutate(db, { type: 'project.add', name: 'Work' })
     const project = result.projects?.[0]
