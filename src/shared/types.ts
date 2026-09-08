@@ -37,7 +37,37 @@ export interface ProjectRow {
   deleted_at: string | null
 }
 
+export interface SectionRow {
+  id: string
+  project_id: string
+  name: string
+  section_order: number
+  archived_at: string | null
+  updated_at: string
+  deleted_at: string | null
+}
+
+export interface LabelRow {
+  id: string
+  name: string
+  color: string
+  label_order: number
+  is_favorite: number
+  updated_at: string
+  deleted_at: string | null
+}
+
+export interface TaskLabelRow {
+  task_id: string
+  label_id: string
+  updated_at: string
+  deleted_at: string | null
+}
+
 export interface MutateResult {
   tasks?: TaskRow[]
   projects?: ProjectRow[]
+  sections?: SectionRow[]
+  labels?: LabelRow[]
+  taskLabels?: TaskLabelRow[]
 }

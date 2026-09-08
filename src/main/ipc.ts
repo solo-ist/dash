@@ -1,49 +1,73 @@
 import type Database from 'better-sqlite3'
-import { ipcMain } from 'electron'
-import { z } from 'zod'
+import { BrowserWindow, ipcMain } from 'electron'
 import { OpSchema } from '../shared/ops'
+import { QueryParamsSchemas, type QueryName } from '../shared/queries'
+import type { DataChangedPayload } from '../shared/api'
+import type { MutateResult } from '../shared/types'
 import { mutate } from './mutate'
-import { listProjects, listTasks } from './queries'
-import type { ProjectRow, TaskRow } from '../shared/types'
+import { listLabels, listProjects, listSections, listTaskLabels, listTasks } from './queries'
 
-function requireTask(result: { tasks?: TaskRow[] }): TaskRow {
-  const task = result.tasks?.[0]
-  if (!task) throw new Error('mutate did not return a task')
-  return task
+function isQueryName(name: unknown): name is QueryName {
+  return typeof name === 'string' && Object.prototype.hasOwnProperty.call(QueryParamsSchemas, name)
+}
+
+function runQuery(db: Database, name: QueryName, params: unknown): unknown {
+  switch (name) {
+    case 'tasks.list': {
+      const parsed = QueryParamsSchemas['tasks.list'].parse(params)
+      return listTasks(db, parsed.projectId)
+    }
+    case 'projects.list': {
+      QueryParamsSchemas['projects.list'].parse(params)
+      return listProjects(db)
+    }
+    case 'sections.list': {
+      const parsed = QueryParamsSchemas['sections.list'].parse(params)
+      return listSections(db, parsed.projectId)
+    }
+    case 'labels.list': {
+      QueryParamsSchemas['labels.list'].parse(params)
+      return listLabels(db)
+    }
+    case 'taskLabels.list': {
+      QueryParamsSchemas['taskLabels.list'].parse(params)
+      return listTaskLabels(db)
+    }
+    default: {
+      const exhaustive: never = name
+      throw new Error(`unknown query: ${String(exhaustive)}`)
+    }
+  }
+}
+
+function entitiesFor(result: MutateResult): string[] {
+  const entities: string[] = []
+  if (result.tasks !== undefined) entities.push('tasks')
+  if (result.projects !== undefined) entities.push('projects')
+  if (result.sections !== undefined) entities.push('sections')
+  if (result.labels !== undefined) entities.push('labels')
+  if (result.taskLabels !== undefined) entities.push('taskLabels')
+  return entities
+}
+
+function broadcastDataChanged(entities: string[]): void {
+  if (entities.length === 0) return
+  const payload: DataChangedPayload = { entities }
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('data:changed', payload)
+  }
 }
 
 export function registerIpc(db: Database): void {
-  ipcMain.handle('tasks:list', (_event, projectId: unknown): TaskRow[] => {
-    const parsed = z.string().optional().parse(projectId)
-    return listTasks(db, parsed)
+  ipcMain.handle('db:query', (_event, name: unknown, params: unknown): unknown => {
+    if (!isQueryName(name)) throw new Error(`unknown query: ${String(name)}`)
+    return runQuery(db, name, params)
   })
 
-  ipcMain.handle('tasks:add', (_event, input: unknown): TaskRow => {
-    const op = OpSchema.parse({ type: 'task.add' as const, ...(input as Record<string, unknown>) })
-    return requireTask(mutate(db, op))
-  })
-
-  ipcMain.handle('tasks:complete', (_event, id: unknown): TaskRow => {
-    const parsed = z.string().parse(id)
-    return requireTask(mutate(db, { type: 'task.complete', id: parsed }))
-  })
-
-  ipcMain.handle('tasks:uncomplete', (_event, id: unknown): TaskRow => {
-    const parsed = z.string().parse(id)
-    return requireTask(mutate(db, { type: 'task.uncomplete', id: parsed }))
-  })
-
-  ipcMain.handle('tasks:delete', (_event, id: unknown): TaskRow => {
-    const parsed = z.string().parse(id)
-    return requireTask(mutate(db, { type: 'task.delete', id: parsed }))
-  })
-
-  ipcMain.handle('tasks:undelete', (_event, id: unknown): TaskRow => {
-    const parsed = z.string().parse(id)
-    return requireTask(mutate(db, { type: 'task.undelete', id: parsed }))
-  })
-
-  ipcMain.handle('projects:list', (): ProjectRow[] => {
-    return listProjects(db)
+  ipcMain.handle('db:mutate', (_event, op: unknown): MutateResult => {
+    const validated = OpSchema.parse(op)
+    const result = mutate(db, validated)
+    broadcastDataChanged(entitiesFor(result))
+    return result
   })
 }

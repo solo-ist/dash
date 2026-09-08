@@ -2,8 +2,12 @@ import { create } from 'zustand'
 import type { StoreApi, UseBoundStore } from 'zustand'
 import type { DashApi, TaskAddInput } from '../../shared/api'
 import type { TaskRow } from '../../shared/types'
+import type { Op } from '../../shared/ops'
 
 export type TaskStore = UseBoundStore<StoreApi<TaskState>>
+
+export type TaskUpdatePatch = Omit<Extract<Op, { type: 'task.update' }>, 'type' | 'id'>
+export type TaskMoveScope = Omit<Extract<Op, { type: 'task.move' }>, 'type' | 'id' | 'targetIndex'>
 
 export interface TaskState {
   tasks: TaskRow[]
@@ -11,6 +15,9 @@ export interface TaskState {
   error: string | null
   load: () => Promise<void>
   add: (input: TaskAddInput) => Promise<void>
+  addSubtask: (parentId: string, content: string) => Promise<void>
+  update: (id: string, patch: TaskUpdatePatch) => Promise<void>
+  moveTask: (id: string, targetIndex: number, scope?: TaskMoveScope) => Promise<void>
   complete: (id: string) => Promise<void>
   uncomplete: (id: string) => Promise<void>
   remove: (id: string) => Promise<void>
@@ -19,14 +26,20 @@ export interface TaskState {
 
 let tempIdCounter = 0
 
+function requireTask(result: { tasks?: TaskRow[] }): TaskRow {
+  const task = result.tasks?.[0]
+  if (!task) throw new Error('mutate did not return a task')
+  return task
+}
+
 export function createTaskStore(api: DashApi): TaskStore {
-  return create<TaskState>()((set, get) => ({
+  const store = create<TaskState>()((set, get) => ({
     tasks: [],
     loaded: false,
     error: null,
     load: async () => {
       try {
-        const tasks = await api.tasks.list()
+        const tasks = await api.query('tasks.list', {})
         set({ tasks, loaded: true, error: null })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
@@ -41,7 +54,7 @@ export function createTaskStore(api: DashApi): TaskStore {
         description: input.description ?? '',
         project_id: input.projectId ?? '',
         section_id: input.sectionId ?? null,
-        parent_id: null,
+        parent_id: input.parentId ?? null,
         priority: input.priority ?? 4,
         due_date: input.dueDate ?? null,
         due_has_time: input.dueHasTime ? 1 : 0,
@@ -65,7 +78,8 @@ export function createTaskStore(api: DashApi): TaskStore {
       }))
 
       try {
-        const newTask = await api.tasks.add(input)
+        const result = await api.mutate({ type: 'task.add', ...input })
+        const newTask = requireTask(result)
         set((state) => ({
           tasks: state.tasks.map(task => task.id === tempId ? newTask : task)
         }))
@@ -75,6 +89,77 @@ export function createTaskStore(api: DashApi): TaskStore {
           tasks: state.tasks.filter(task => task.id !== tempId),
           error: err instanceof Error ? err.message : String(err)
         }))
+      }
+    },
+    addSubtask: async (parentId: string, content: string) => {
+      const parent = get().tasks.find(task => task.id === parentId)
+      await get().add({
+        content,
+        parentId,
+        projectId: parent?.project_id,
+        sectionId: parent?.section_id ?? undefined
+      })
+    },
+    update: async (id: string, patch: TaskUpdatePatch) => {
+      const prevState = get()
+      const taskToUpdate = prevState.tasks.find(task => task.id === id)
+
+      if (!taskToUpdate) return
+
+      const optimisticTask: TaskRow = {
+        ...taskToUpdate,
+        ...(patch.content !== undefined ? { content: patch.content } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.projectId !== undefined ? { project_id: patch.projectId } : {}),
+        ...(patch.sectionId !== undefined ? { section_id: patch.sectionId } : {}),
+        ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+        ...(patch.dueDate !== undefined ? { due_date: patch.dueDate } : {}),
+        ...(patch.dueHasTime !== undefined ? { due_has_time: patch.dueHasTime ? 1 : 0 } : {}),
+        ...(patch.durationMin !== undefined ? { duration_min: patch.durationMin } : {}),
+        updated_at: new Date().toISOString()
+      }
+
+      // Optimistically apply the patch
+      set((state) => ({
+        tasks: state.tasks.map(task =>
+          task.id === id ? optimisticTask : task
+        ),
+        error: null
+      }))
+
+      try {
+        const result = await api.mutate({ type: 'task.update', id, ...patch })
+        const updatedTask = requireTask(result)
+        set((state) => ({
+          tasks: state.tasks.map(task =>
+            task.id === id ? updatedTask : task
+          )
+        }))
+      } catch (err) {
+        // Rollback on failure
+        set((state) => ({
+          tasks: state.tasks.map(task =>
+            task.id === id ? taskToUpdate : task
+          ),
+          error: err instanceof Error ? err.message : String(err)
+        }))
+      }
+    },
+    moveTask: async (id: string, targetIndex: number, scope?: TaskMoveScope) => {
+      const prevState = get()
+      const taskToMove = prevState.tasks.find(task => task.id === id)
+
+      if (!taskToMove) return
+
+      try {
+        const result = await api.mutate({ type: 'task.move', id, targetIndex, ...scope })
+        const movedTask = requireTask(result)
+        set((state) => ({
+          tasks: state.tasks.map(task => task.id === id ? movedTask : task),
+          error: null
+        }))
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
       }
     },
     complete: async (id: string) => {
@@ -92,9 +177,10 @@ export function createTaskStore(api: DashApi): TaskStore {
       }))
 
       try {
-        const completedTask = await api.tasks.complete(id)
+        const result = await api.mutate({ type: 'task.complete', id })
+        const completedTask = requireTask(result)
         set((state) => ({
-          tasks: state.tasks.map(task => 
+          tasks: state.tasks.map(task =>
             task.id === id ? completedTask : task
           )
         }))
@@ -123,9 +209,10 @@ export function createTaskStore(api: DashApi): TaskStore {
       }))
 
       try {
-        const uncompletedTask = await api.tasks.uncomplete(id)
+        const result = await api.mutate({ type: 'task.uncomplete', id })
+        const uncompletedTask = requireTask(result)
         set((state) => ({
-          tasks: state.tasks.map(task => 
+          tasks: state.tasks.map(task =>
             task.id === id ? uncompletedTask : task
           )
         }))
@@ -152,7 +239,7 @@ export function createTaskStore(api: DashApi): TaskStore {
       }))
 
       try {
-        await api.tasks.delete(id)
+        await api.mutate({ type: 'task.delete', id })
       } catch (err) {
         // Rollback on failure
         set((state) => ({
@@ -163,7 +250,8 @@ export function createTaskStore(api: DashApi): TaskStore {
     },
     undelete: async (id: string) => {
       try {
-        const restored = await api.tasks.undelete(id)
+        const result = await api.mutate({ type: 'task.undelete', id })
+        const restored = requireTask(result)
         set((state) => ({
           tasks: [...state.tasks.filter(task => task.id !== restored.id), restored],
           error: null
@@ -173,16 +261,87 @@ export function createTaskStore(api: DashApi): TaskStore {
       }
     }
   }))
+
+  // Reconcile on main-process broadcasts (same pattern as labelStore) so
+  // mutations this store didn't initiate still render.
+  api.on('data:changed', (payload) => {
+    if (payload.entities.includes('tasks')) {
+      void store.getState().load()
+    }
+  })
+
+  return store
+}
+
+// Mirrors the main process's `ORDER BY task_order, added_at, id` so the
+// client never fights the sparse sort keys assigned by task.add/task.move.
+function compareTaskOrder(a: TaskRow, b: TaskRow): number {
+  if (a.task_order !== b.task_order) return a.task_order - b.task_order
+  const addedDiff = new Date(a.added_at).getTime() - new Date(b.added_at).getTime()
+  if (addedDiff !== 0) return addedDiff
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 }
 
 export function selectOpenTasks(tasks: TaskRow[], projectId: string): TaskRow[] {
   return tasks
     .filter(task => task.checked === 0 && task.deleted_at === null && task.project_id === projectId)
-    .sort((a, b) => new Date(a.added_at).getTime() - new Date(b.added_at).getTime())
+    .sort(compareTaskOrder)
 }
 
 export function selectAllOpenTasks(tasks: TaskRow[]): TaskRow[] {
   return tasks
     .filter(task => task.checked === 0 && task.deleted_at === null)
-    .sort((a, b) => new Date(a.added_at).getTime() - new Date(b.added_at).getTime())
+    .sort(compareTaskOrder)
+}
+
+export interface NestedTask {
+  task: TaskRow
+  depth: number
+}
+
+// Given a flat, already-scoped task list (e.g. one project/section), produce a
+// display order where top-level tasks keep their input order and each task's
+// children are flattened directly beneath it, depth-first. A task whose parent
+// isn't part of the given list (e.g. filtered out elsewhere) is treated as
+// top-level rather than dropped.
+export function nestTasksByParent(tasks: TaskRow[]): NestedTask[] {
+  const visible = tasks.filter(task => task.deleted_at === null)
+  const idSet = new Set(visible.map(task => task.id))
+  const childrenByParent = new Map<string, TaskRow[]>()
+
+  for (const task of visible) {
+    if (task.parent_id !== null && idSet.has(task.parent_id)) {
+      const siblings = childrenByParent.get(task.parent_id)
+      if (siblings) siblings.push(task)
+      else childrenByParent.set(task.parent_id, [task])
+    }
+  }
+
+  const result: NestedTask[] = []
+  function walk(task: TaskRow, depth: number): void {
+    result.push({ task, depth })
+    const children = childrenByParent.get(task.id)
+    if (children === undefined) return
+    for (const child of children) walk(child, depth + 1)
+  }
+
+  for (const task of visible) {
+    if (task.parent_id === null || !idSet.has(task.parent_id)) walk(task, 0)
+  }
+
+  return result
+}
+
+export interface SubtaskCounts {
+  total: number
+  completed: number
+}
+
+// Counts a task's direct (non-deleted) children — used for the "1/3" subtask chip.
+export function subtaskCounts(tasks: TaskRow[], parentId: string): SubtaskCounts {
+  const children = tasks.filter(task => task.parent_id === parentId && task.deleted_at === null)
+  return {
+    total: children.length,
+    completed: children.filter(task => task.checked === 1).length
+  }
 }

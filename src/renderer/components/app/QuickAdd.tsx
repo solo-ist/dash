@@ -141,7 +141,8 @@ export function QuickAdd({ add, projects, defaultProjectId }: QuickAddProps): Re
       recurString: parseResult.recur?.canonical,
       recurStrict: parseResult.recur?.strict,
       durationMin: parseResult.duration,
-      projectId: resolveProjectId(parseResult.projectRef, projects, defaultProjectId)
+      projectId: resolveProjectId(parseResult.projectRef, projects, defaultProjectId),
+      labels: parseResult.labelRefs.length > 0 ? parseResult.labelRefs : undefined
     }
     setText('')
     setOpen(false)

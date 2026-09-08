@@ -1,4 +1,6 @@
-import type { ProjectRow, TaskRow } from './types'
+import type { Op } from './ops'
+import type { MutateResult } from './types'
+import type { QueryName, QueryParams, QueryResult } from './queries'
 
 export interface TaskAddInput {
   content: string
@@ -11,21 +13,19 @@ export interface TaskAddInput {
   recurString?: string
   recurStrict?: boolean
   durationMin?: number
+  parentId?: string
+  labels?: string[]
+}
+
+export interface DataChangedPayload {
+  entities: string[]
 }
 
 export interface DashApi {
   platform: string
-  tasks: {
-    list: (projectId?: string) => Promise<TaskRow[]>
-    add: (input: TaskAddInput) => Promise<TaskRow>
-    complete: (id: string) => Promise<TaskRow>
-    uncomplete: (id: string) => Promise<TaskRow>
-    delete: (id: string) => Promise<TaskRow>
-    undelete: (id: string) => Promise<TaskRow>
-  }
-  projects: {
-    list: () => Promise<ProjectRow[]>
-  }
+  query: <N extends QueryName>(name: N, params: QueryParams<N>) => Promise<QueryResult<N>>
+  mutate: (op: Op) => Promise<MutateResult>
+  on: (channel: 'data:changed', cb: (payload: DataChangedPayload) => void) => () => void
 }
 
 declare global {

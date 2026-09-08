@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createTaskStore, selectOpenTasks, selectAllOpenTasks } from './taskStore'
+import { createTaskStore, selectOpenTasks, selectAllOpenTasks, nestTasksByParent, subtaskCounts } from './taskStore'
 import type { TaskRow } from '../../shared/types'
 import type { DashApi } from '../../shared/api'
 
@@ -29,20 +29,13 @@ const createTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   ...overrides
 })
 
-const makeApi = (): DashApi => ({
-  platform: 'test',
-  tasks: {
-    list: vi.fn(),
-    add: vi.fn(),
-    complete: vi.fn(),
-    uncomplete: vi.fn(),
-    delete: vi.fn(),
-    undelete: vi.fn()
-  },
-  projects: {
-    list: vi.fn()
-  }
-})
+function makeApi(): { api: DashApi; query: ReturnType<typeof vi.fn>; mutate: ReturnType<typeof vi.fn> } {
+  const query = vi.fn()
+  const mutate = vi.fn()
+  const on = vi.fn()
+  const api = { platform: 'test', query, mutate, on } as DashApi
+  return { api, query, mutate }
+}
 
 describe('taskStore', () => {
   beforeEach(() => {
@@ -51,8 +44,8 @@ describe('taskStore', () => {
   })
 
   it('load populates tasks and sets loaded', async () => {
-    const api = makeApi()
-    vi.mocked(api.tasks.list).mockResolvedValue([createTaskRow({ id: '1' }), createTaskRow({ id: '2' })])
+    const { api, query } = makeApi()
+    query.mockResolvedValue([createTaskRow({ id: '1' }), createTaskRow({ id: '2' })])
 
     const store = createTaskStore(api)
     await store.getState().load()
@@ -60,12 +53,12 @@ describe('taskStore', () => {
     expect(store.getState().tasks).toHaveLength(2)
     expect(store.getState().loaded).toBe(true)
     expect(store.getState().error).toBeNull()
-    expect(api.tasks.list).toHaveBeenCalled()
+    expect(query).toHaveBeenCalledWith('tasks.list', {})
   })
 
   it('load sets error on failure', async () => {
-    const api = makeApi()
-    vi.mocked(api.tasks.list).mockRejectedValue(new Error('Failed to load'))
+    const { api, query } = makeApi()
+    query.mockRejectedValue(new Error('Failed to load'))
 
     const store = createTaskStore(api)
     await store.getState().load()
@@ -75,8 +68,8 @@ describe('taskStore', () => {
   })
 
   it('add inserts an optimistic temp row immediately', async () => {
-    const api = makeApi()
-    vi.mocked(api.tasks.add).mockResolvedValue(createTaskRow({ id: 'real-id', content: 'New task' }))
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [createTaskRow({ id: 'real-id', content: 'New task' })] })
 
     const store = createTaskStore(api)
     const pending = store.getState().add({
@@ -98,12 +91,12 @@ describe('taskStore', () => {
     expect(finalState.tasks).toHaveLength(1)
     expect(finalState.tasks[0].id).toBe('real-id')
     expect(finalState.tasks[0].content).toBe('New task')
-    expect(api.tasks.add).toHaveBeenCalled()
+    expect(mutate).toHaveBeenCalled()
   })
 
   it('add replaces temp row with real row on success', async () => {
-    const api = makeApi()
-    vi.mocked(api.tasks.add).mockResolvedValue(createTaskRow({ id: 'real-id', content: 'Real task' }))
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [createTaskRow({ id: 'real-id', content: 'Real task' })] })
 
     const store = createTaskStore(api)
     await store.getState().add({
@@ -114,12 +107,12 @@ describe('taskStore', () => {
     expect(state.tasks).toHaveLength(1)
     expect(state.tasks[0].id).toBe('real-id')
     expect(state.tasks[0].content).toBe('Real task')
-    expect(api.tasks.add).toHaveBeenCalled()
+    expect(mutate).toHaveBeenCalled()
   })
 
   it('add rolls back to prior list and sets error on failure', async () => {
-    const api = makeApi()
-    vi.mocked(api.tasks.add).mockRejectedValue(new Error('Failed to add'))
+    const { api, mutate } = makeApi()
+    mutate.mockRejectedValue(new Error('Failed to add'))
 
     const store = createTaskStore(api)
     await store.getState().add({
@@ -133,8 +126,8 @@ describe('taskStore', () => {
 
   it('complete sets checked=1 optimistically and rolls back on reject', async () => {
     const initialTask = createTaskRow({ id: 'task-1', checked: 0 })
-    const api = makeApi()
-    vi.mocked(api.tasks.complete).mockRejectedValue(new Error('Failed to complete'))
+    const { api, mutate } = makeApi()
+    mutate.mockRejectedValue(new Error('Failed to complete'))
 
     const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
@@ -148,13 +141,13 @@ describe('taskStore', () => {
 
   it('complete updates task and removes optimistic flag on success', async () => {
     const initialTask = createTaskRow({ id: 'task-1', checked: 0 })
-    const completedTask = createTaskRow({ 
-      id: 'task-1', 
+    const completedTask = createTaskRow({
+      id: 'task-1',
       checked: 1,
       completed_at: new Date().toISOString()
     })
-    const api = makeApi()
-    vi.mocked(api.tasks.complete).mockResolvedValue(completedTask)
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [completedTask] })
 
     const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
@@ -164,13 +157,46 @@ describe('taskStore', () => {
     const state = store.getState()
     expect(state.tasks[0].checked).toBe(1)
     expect(state.tasks[0].completed_at).not.toBeNull()
-    expect(api.tasks.complete).toHaveBeenCalled()
+    expect(mutate).toHaveBeenCalled()
+  })
+
+  it('update replaces the row with the server response on success', async () => {
+    const initialTask = createTaskRow({ id: 'task-1', content: 'Old content', priority: 4 })
+    const updatedTask = createTaskRow({ id: 'task-1', content: 'New content', priority: 2 })
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [updatedTask] })
+
+    const store = createTaskStore(api)
+    store.setState({ tasks: [initialTask] })
+
+    await store.getState().update('task-1', { content: 'New content', priority: 2 })
+
+    const state = store.getState()
+    expect(state.tasks[0].content).toBe('New content')
+    expect(state.tasks[0].priority).toBe(2)
+    expect(state.error).toBeNull()
+    expect(mutate).toHaveBeenCalledWith({ type: 'task.update', id: 'task-1', content: 'New content', priority: 2 })
+  })
+
+  it('update rolls back to the original row and sets error on failure', async () => {
+    const initialTask = createTaskRow({ id: 'task-1', content: 'Old content', priority: 4 })
+    const { api, mutate } = makeApi()
+    mutate.mockRejectedValue(new Error('Failed to update'))
+
+    const store = createTaskStore(api)
+    store.setState({ tasks: [initialTask] })
+
+    await store.getState().update('task-1', { content: 'New content', priority: 2 })
+
+    const state = store.getState()
+    expect(state.tasks[0]).toEqual(initialTask)
+    expect(state.error).toBe('Failed to update')
   })
 
   it('remove drops the row and restores it on reject', async () => {
     const initialTask = createTaskRow({ id: 'task-1' })
-    const api = makeApi()
-    vi.mocked(api.tasks.delete).mockRejectedValue(new Error('Failed to delete'))
+    const { api, mutate } = makeApi()
+    mutate.mockRejectedValue(new Error('Failed to delete'))
 
     const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
@@ -184,8 +210,8 @@ describe('taskStore', () => {
 
   it('remove removes task on success', async () => {
     const initialTask = createTaskRow({ id: 'task-1' })
-    const api = makeApi()
-    vi.mocked(api.tasks.delete).mockResolvedValue(createTaskRow({ id: 'task-1' }))
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [createTaskRow({ id: 'task-1' })] })
 
     const store = createTaskStore(api)
     store.setState({ tasks: [initialTask] })
@@ -194,13 +220,13 @@ describe('taskStore', () => {
 
     const state = store.getState()
     expect(state.tasks).toHaveLength(0)
-    expect(api.tasks.delete).toHaveBeenCalled()
+    expect(mutate).toHaveBeenCalled()
   })
 
   it('undelete restores the task into state on success', async () => {
     const restoredTask = createTaskRow({ id: 'task-1', deleted_at: null })
-    const api = makeApi()
-    vi.mocked(api.tasks.undelete).mockResolvedValue(restoredTask)
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [restoredTask] })
 
     const store = createTaskStore(api)
     store.setState({ tasks: [] })
@@ -212,12 +238,12 @@ describe('taskStore', () => {
     expect(state.tasks[0].id).toBe('task-1')
     expect(state.tasks[0].deleted_at).toBeNull()
     expect(state.error).toBeNull()
-    expect(api.tasks.undelete).toHaveBeenCalled()
+    expect(mutate).toHaveBeenCalled()
   })
 
   it('undelete leaves tasks unchanged and sets error on failure', async () => {
-    const api = makeApi()
-    vi.mocked(api.tasks.undelete).mockRejectedValue(new Error('Failed to undelete'))
+    const { api, mutate } = makeApi()
+    mutate.mockRejectedValue(new Error('Failed to undelete'))
 
     const store = createTaskStore(api)
     store.setState({ tasks: [] })
@@ -256,5 +282,87 @@ describe('taskStore', () => {
     expect(result).toHaveLength(2)
     expect(result[0].id).toBe('3') // sorted by added_at ascending
     expect(result[1].id).toBe('4')
+  })
+
+  it('addSubtask issues task.add with the parent id and inherited project/section', async () => {
+    const parent = createTaskRow({ id: 'parent-1', project_id: 'proj1', section_id: 'sec1' })
+    const { api, mutate } = makeApi()
+    mutate.mockResolvedValue({ tasks: [createTaskRow({ id: 'child-1', parent_id: 'parent-1' })] })
+
+    const store = createTaskStore(api)
+    store.setState({ tasks: [parent] })
+
+    await store.getState().addSubtask('parent-1', 'New subtask')
+
+    expect(mutate).toHaveBeenCalledWith({
+      type: 'task.add',
+      content: 'New subtask',
+      parentId: 'parent-1',
+      projectId: 'proj1',
+      sectionId: 'sec1'
+    })
+  })
+
+  describe('nestTasksByParent', () => {
+    it('orders top-level tasks first and flattens children beneath their parent with depth', () => {
+      const parent = createTaskRow({ id: 'parent', parent_id: null })
+      const childA = createTaskRow({ id: 'child-a', parent_id: 'parent' })
+      const childB = createTaskRow({ id: 'child-b', parent_id: 'parent' })
+      const grandchild = createTaskRow({ id: 'grandchild', parent_id: 'child-a' })
+      const other = createTaskRow({ id: 'other', parent_id: null })
+
+      const result = nestTasksByParent([parent, childA, childB, grandchild, other])
+
+      expect(result.map((entry) => [entry.task.id, entry.depth])).toEqual([
+        ['parent', 0],
+        ['child-a', 1],
+        ['grandchild', 2],
+        ['child-b', 1],
+        ['other', 0]
+      ])
+    })
+
+    it('flattens children under the correct parent when multiple parents are present', () => {
+      const parentA = createTaskRow({ id: 'parent-a', parent_id: null })
+      const parentB = createTaskRow({ id: 'parent-b', parent_id: null })
+      const childOfA = createTaskRow({ id: 'child-of-a', parent_id: 'parent-a' })
+      const childOfB = createTaskRow({ id: 'child-of-b', parent_id: 'parent-b' })
+
+      const result = nestTasksByParent([parentA, parentB, childOfA, childOfB])
+
+      const idsUnderA = result.filter((entry) => entry.task.parent_id === 'parent-a').map((entry) => entry.task.id)
+      const idsUnderB = result.filter((entry) => entry.task.parent_id === 'parent-b').map((entry) => entry.task.id)
+      expect(idsUnderA).toEqual(['child-of-a'])
+      expect(idsUnderB).toEqual(['child-of-b'])
+    })
+
+    it('excludes deleted children from the nested output', () => {
+      const parent = createTaskRow({ id: 'parent', parent_id: null })
+      const liveChild = createTaskRow({ id: 'live-child', parent_id: 'parent' })
+      const deletedChild = createTaskRow({ id: 'deleted-child', parent_id: 'parent', deleted_at: '2023-01-01' })
+
+      const result = nestTasksByParent([parent, liveChild, deletedChild])
+
+      expect(result.map((entry) => entry.task.id)).toEqual(['parent', 'live-child'])
+    })
+  })
+
+  describe('subtaskCounts', () => {
+    it('returns total and completed counts for direct children', () => {
+      const tasks: TaskRow[] = [
+        createTaskRow({ id: 'parent', parent_id: null }),
+        createTaskRow({ id: 'child-1', parent_id: 'parent', checked: 1 }),
+        createTaskRow({ id: 'child-2', parent_id: 'parent', checked: 0 }),
+        createTaskRow({ id: 'child-3', parent_id: 'parent', checked: 0, deleted_at: '2023-01-01' }),
+        createTaskRow({ id: 'unrelated', parent_id: null })
+      ]
+
+      expect(subtaskCounts(tasks, 'parent')).toEqual({ total: 2, completed: 1 })
+    })
+
+    it('returns zero counts for a task with no children', () => {
+      const tasks: TaskRow[] = [createTaskRow({ id: 'lonely', parent_id: null })]
+      expect(subtaskCounts(tasks, 'lonely')).toEqual({ total: 0, completed: 0 })
+    })
   })
 })
