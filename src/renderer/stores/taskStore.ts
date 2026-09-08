@@ -297,8 +297,6 @@ export function createTaskStore(api: DashApi): TaskStore {
   return store
 }
 
-// Make sure we are importing the right type
-export type { TaskMoveScope } from './taskStore'
 
 // Mirrors the main process's `ORDER BY task_order, added_at, id` so the
 // client never fights the sparse sort keys assigned by task.add/task.move.

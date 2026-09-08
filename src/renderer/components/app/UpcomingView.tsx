@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react'
 import { TaskRowItem } from './TaskRowItem'
 import { TaskList } from './TaskList'
-import { todayLocalDate, datePart } from '../../lib/dates'
+import { todayLocalDate, datePart, parseLocalDate, addDaysLocal } from '../../lib/dates'
 import type { TaskRow } from '../../../shared/types'
 import type { TaskMoveScope } from '../../stores/taskStore'
 
 // Helper functions for day key generation and grouping
 export function generateDayKeys(today: string, horizonDays: number): string[] {
   const keys: string[] = []
-  const todayDate = new Date(today)
+  const todayDate = parseLocalDate(today)
   
   for (let i = 0; i < horizonDays; i++) {
     const date = new Date(todayDate)
@@ -123,7 +123,7 @@ export function UpcomingView({
       {/* Week strip */}
       <div className="flex justify-between px-4 py-2">
         {dayKeys.map((dayKey, index) => {
-          const date = new Date(dayKey)
+          const date = parseLocalDate(dayKey)
           const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()]
           const dayNumber = date.getDate()
           
@@ -150,7 +150,7 @@ export function UpcomingView({
         const tasksForDay = groupedTasks[dayKey] || []
         if (tasksForDay.length === 0) return null
         
-        const date = new Date(dayKey)
+        const date = parseLocalDate(dayKey)
         const weekday = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()]
         const dayNumber = date.getDate()
         const month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.getMonth()]
@@ -160,9 +160,7 @@ export function UpcomingView({
           dayLabel = 'Today'
         } else {
           // Calculate tomorrow's date correctly
-          const tomorrow = new Date(today)
-          tomorrow.setDate(tomorrow.getDate() + 1)
-          const tomorrowStr = tomorrow.toISOString().split('T')[0]
+          const tomorrowStr = addDaysLocal(today, 1)
           
           if (dayKey === tomorrowStr) {
             dayLabel = 'Tomorrow'
