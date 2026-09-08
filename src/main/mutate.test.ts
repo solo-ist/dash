@@ -726,3 +726,111 @@ describe('task ordering', () => {
     expect(() => mutate(db, { type: 'task.move', id: 'missing', targetIndex: 0 })).toThrow()
   })
 })
+
+describe('reminders', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openDatabase(':memory:')
+    migrate(db)
+  })
+
+  it('creates a relative reminder', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+
+    const result = mutate(db, {
+      type: 'reminder.create',
+      taskId: task.id,
+      kind: 'relative',
+      minuteOffset: 30
+    })
+
+    const reminder = result.reminders?.[0]
+    expect(reminder?.task_id).toBe(task.id)
+    expect(reminder?.kind).toBe('relative')
+    expect(reminder?.minute_offset).toBe(30)
+    expect(reminder?.at).toBeNull()
+    expect(reminder?.fired_at).toBeNull()
+  })
+
+  it('creates an absolute reminder', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+
+    const result = mutate(db, {
+      type: 'reminder.create',
+      taskId: task.id,
+      kind: 'absolute',
+      at: '2026-01-01 09:00'
+    })
+
+    const reminder = result.reminders?.[0]
+    expect(reminder?.kind).toBe('absolute')
+    expect(reminder?.at).toBe('2026-01-01 09:00')
+    expect(reminder?.minute_offset).toBeNull()
+  })
+
+  it('rejects a relative reminder without minuteOffset', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+
+    expect(() =>
+      mutate(db, { type: 'reminder.create', taskId: task.id, kind: 'relative' })
+    ).toThrow()
+  })
+
+  it('rejects an absolute reminder without at', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+
+    expect(() =>
+      mutate(db, { type: 'reminder.create', taskId: task.id, kind: 'absolute' })
+    ).toThrow()
+  })
+
+  it('rejects creating a reminder on a nonexistent task', () => {
+    expect(() =>
+      mutate(db, { type: 'reminder.create', taskId: 'missing', kind: 'relative', minuteOffset: 10 })
+    ).toThrow()
+  })
+
+  it('updates a reminder and clears fired_at when the timing changes', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+    const created = mutate(db, {
+      type: 'reminder.create',
+      taskId: task.id,
+      kind: 'absolute',
+      at: '2026-01-01 09:00'
+    }).reminders![0]
+
+    db.prepare('UPDATE reminders SET fired_at = ? WHERE id = ?').run('2026-01-01T09:00:00.000Z', created.id)
+
+    const updated = mutate(db, { type: 'reminder.update', id: created.id, at: '2026-01-02 09:00' })
+
+    expect(updated.reminders?.[0].at).toBe('2026-01-02 09:00')
+    expect(updated.reminders?.[0].fired_at).toBeNull()
+  })
+
+  it('tombstones a deleted reminder instead of removing the row', () => {
+    const task = mutate(db, { type: 'task.add', content: 'Ship it' }).tasks![0]
+    const created = mutate(db, {
+      type: 'reminder.create',
+      taskId: task.id,
+      kind: 'relative',
+      minuteOffset: 15
+    }).reminders![0]
+
+    const deleted = mutate(db, { type: 'reminder.delete', id: created.id })
+    expect(deleted.reminders?.[0].deleted_at).toBeTruthy()
+
+    const raw = db.prepare('SELECT deleted_at FROM reminders WHERE id = ?').get(created.id) as {
+      deleted_at: string | null
+    }
+    expect(raw.deleted_at).toBeTruthy()
+  })
+
+  it('reminder.update on an unknown id throws', () => {
+    expect(() => mutate(db, { type: 'reminder.update', id: 'missing', minuteOffset: 5 })).toThrow()
+  })
+
+  it('reminder.delete on an unknown id throws', () => {
+    expect(() => mutate(db, { type: 'reminder.delete', id: 'missing' })).toThrow()
+  })
+})

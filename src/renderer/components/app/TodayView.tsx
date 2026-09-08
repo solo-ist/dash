@@ -3,6 +3,7 @@ import { TaskRowItem } from './TaskRowItem'
 import { TaskList } from './TaskList'
 import { todayLocalDate, isOverdue, datePart } from '../../lib/dates'
 import type { TaskRow } from '../../../shared/types'
+import type { TaskMoveScope } from '../../stores/taskStore'
 
 interface TodayViewProps {
   tasks: TaskRow[]
@@ -10,7 +11,7 @@ interface TodayViewProps {
   selectedTaskId: string | null
   onComplete: (id: string) => void
   onDelete: (id: string) => void
-  onMove: (id: string, targetIndex: number, scope?: { projectId?: string; sectionId?: string }) => void
+  onMove: (id: string, targetIndex: number, scope?: TaskMoveScope) => void
 }
 
 export function TodayView({

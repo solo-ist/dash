@@ -4,7 +4,24 @@ import { OpSchema, type Op } from '../shared/ops'
 import { insertionKeys, keyAfter } from '../shared/order/keys'
 import { planReorder, type SiblingEntry } from '../shared/order/reorder'
 import { nextOccurrence, parseRecur } from '../shared/recur'
-import type { LabelRow, MutateResult, ProjectRow, SectionRow, TaskLabelRow, TaskRow } from '../shared/types'
+import type {
+  LabelRow,
+  MutateResult,
+  ProjectRow,
+  ReminderRow,
+  SectionRow,
+  TaskLabelRow,
+  TaskRow
+} from '../shared/types'
+
+type MutatedListener = () => void
+let onMutated: MutatedListener | null = null
+
+/** Registered by src/main/index.ts to re-arm the reminder scheduler after any
+ * mutation that could change fire times, without importing electron here. */
+export function setOnMutated(listener: MutatedListener | null): void {
+  onMutated = listener
+}
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -625,6 +642,68 @@ function setTaskLabels(
   return { taskLabels }
 }
 
+function readReminderRow(db: Database, id: string): ReminderRow | undefined {
+  return db.prepare('SELECT * FROM reminders WHERE id = ?').get(id) as ReminderRow | undefined
+}
+
+function requireReminderRow(db: Database, id: string): ReminderRow {
+  const row = readReminderRow(db, id)
+  if (!row || row.deleted_at !== null) throw new Error(`reminder not found: ${id}`)
+  return row
+}
+
+function addReminder(db: Database, op: Extract<Op, { type: 'reminder.create' }>): ReminderRow {
+  requireTaskRow(db, op.taskId)
+  if (op.kind === 'relative' && op.minuteOffset === undefined) {
+    throw new Error('relative reminders require minuteOffset')
+  }
+  if (op.kind === 'absolute' && op.at === undefined) {
+    throw new Error('absolute reminders require at')
+  }
+
+  const now = nowIso()
+  const id = nanoid(21)
+
+  db.prepare(
+    `INSERT INTO reminders (id, task_id, kind, minute_offset, at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(id, op.taskId, op.kind, op.minuteOffset ?? null, op.at ?? null, now)
+
+  return requireReminderRow(db, id)
+}
+
+function updateReminder(db: Database, op: Extract<Op, { type: 'reminder.update' }>): ReminderRow {
+  requireReminderRow(db, op.id)
+  const now = nowIso()
+
+  const fields: Array<[string, unknown]> = []
+  if (op.kind !== undefined) fields.push(['kind', op.kind])
+  if (op.minuteOffset !== undefined) fields.push(['minute_offset', op.minuteOffset])
+  if (op.at !== undefined) fields.push(['at', op.at])
+  // A timing change means the reminder hasn't fired for its new schedule yet.
+  if (op.kind !== undefined || op.minuteOffset !== undefined || op.at !== undefined) {
+    fields.push(['fired_at', null])
+  }
+  fields.push(['updated_at', now])
+
+  const setClause = fields.map(([column]) => `${column} = ?`).join(', ')
+  const values = fields.map(([, value]) => value)
+
+  db.prepare(`UPDATE reminders SET ${setClause} WHERE id = ?`).run(...values, op.id)
+
+  return requireReminderRow(db, op.id)
+}
+
+function deleteReminder(db: Database, op: Extract<Op, { type: 'reminder.delete' }>): ReminderRow {
+  requireReminderRow(db, op.id)
+  const now = nowIso()
+  db.prepare('UPDATE reminders SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, op.id)
+
+  const row = readReminderRow(db, op.id)
+  if (!row) throw new Error(`reminder not found after delete: ${op.id}`)
+  return row
+}
+
 function moveTask(db: Database, op: Extract<Op, { type: 'task.move' }>): TaskRow {
   const task = requireTaskRow(db, op.id)
   const now = nowIso()
@@ -748,6 +827,12 @@ function applyOp(db: Database, op: Op): MutateResult {
       const { label, taskLabels } = deleteLabel(db, op)
       return { labels: [label], taskLabels }
     }
+    case 'reminder.create':
+      return { reminders: [addReminder(db, op)] }
+    case 'reminder.update':
+      return { reminders: [updateReminder(db, op)] }
+    case 'reminder.delete':
+      return { reminders: [deleteReminder(db, op)] }
     default: {
       const exhaustive: never = op
       throw new Error(`mutate: unknown op ${JSON.stringify(exhaustive)}`)
@@ -758,5 +843,7 @@ function applyOp(db: Database, op: Op): MutateResult {
 export function mutate(db: Database, op: Op): MutateResult {
   const validated = OpSchema.parse(op)
   const run = db.transaction((): MutateResult => applyOp(db, validated))
-  return run()
+  const result = run()
+  onMutated?.()
+  return result
 }

@@ -3,6 +3,7 @@ import { Checkbox } from '../ui/checkbox'
 import { cn } from '../../lib/utils'
 import { todayLocalDate, isOverdue, datePart } from '../../lib/dates'
 import type { TaskRow } from '../../../shared/types'
+import type { TaskMoveScope } from '../../stores/taskStore'
 
 interface TaskRowItemProps {
   task: TaskRow
@@ -10,7 +11,7 @@ interface TaskRowItemProps {
   onSelect: () => void
   onComplete: () => void
   onDelete: () => void
-  onMove: (targetIndex: number, scope?: { projectId?: string; sectionId?: string }) => void
+  onMove: (targetIndex: number, scope?: TaskMoveScope) => void
 }
 
 export function TaskRowItem({

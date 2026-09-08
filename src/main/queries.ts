@@ -60,3 +60,15 @@ export function listTodayTasks(db: Database, today: string): TaskRow[] {
     )
     .all(today) as TaskRow[]
 }
+
+export function listUpcomingTasks(db: Database, today: string, horizonDays: number): TaskRow[] {
+  const endDate = new Date(today)
+  endDate.setDate(endDate.getDate() + horizonDays - 1)
+  const endDateStr = endDate.toISOString().split('T')[0]
+  
+  return db
+    .prepare(
+      'SELECT * FROM tasks WHERE deleted_at IS NULL AND checked = 0 AND due_date IS NOT NULL AND substr(due_date, 1, 10) >= ? AND substr(due_date, 1, 10) <= ? ORDER BY due_date, priority, task_order'
+    )
+    .all(today, endDateStr) as TaskRow[]
+}

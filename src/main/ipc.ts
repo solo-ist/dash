@@ -33,6 +33,14 @@ function runQuery(db: Database, name: QueryName, params: unknown): unknown {
       QueryParamsSchemas['taskLabels.list'].parse(params)
       return listTaskLabels(db)
     }
+    case 'tasks.today': {
+      const parsed = QueryParamsSchemas['tasks.today'].parse(params)
+      return listTodayTasks(db, parsed.today)
+    }
+    case 'tasks.upcoming': {
+      const parsed = QueryParamsSchemas['tasks.upcoming'].parse(params)
+      return listUpcomingTasks(db, parsed.today, parsed.horizonDays)
+    }
     default: {
       const exhaustive: never = name
       throw new Error(`unknown query: ${String(exhaustive)}`)

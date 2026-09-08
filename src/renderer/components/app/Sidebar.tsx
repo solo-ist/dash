@@ -198,6 +198,11 @@ export function Sidebar({
     onSelect(null)
   }
 
+  function handleSelectUpcoming(): void {
+    // For Upcoming view, we don't select any project
+    onSelect(null)
+  }
+
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-border">
       <ScrollArea className="flex-1 px-2 py-3">
@@ -226,6 +231,20 @@ export function Sidebar({
         >
           <Calendar className="h-4 w-4" />
           <span>Today</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleSelectUpcoming}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+            selectedProjectId === null
+              ? 'bg-accent text-accent-foreground'
+              : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
+          )}
+        >
+          <Calendar className="h-4 w-4" />
+          <span>Upcoming</span>
         </button>
 
         {favorites.length > 0 && (

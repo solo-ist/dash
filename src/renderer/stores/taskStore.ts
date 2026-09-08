@@ -14,9 +14,10 @@ export interface TaskState {
   tasks: TaskRow[]
   loaded: boolean
   error: string | null
-  view: 'list' | 'board' | 'today'
+  view: 'list' | 'board' | 'today' | 'upcoming'
   load: () => Promise<void>
   loadToday: () => Promise<void>
+  loadUpcoming: () => Promise<void>
   add: (input: TaskAddInput) => Promise<void>
   addSubtask: (parentId: string, content: string) => Promise<void>
   update: (id: string, patch: TaskUpdatePatch) => Promise<void>
@@ -54,6 +55,15 @@ export function createTaskStore(api: DashApi): TaskStore {
         const today = todayLocalDate()
         const tasks = await api.query('tasks.today', { today })
         set({ tasks, loaded: true, error: null, view: 'today' })
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+    loadUpcoming: async () => {
+      try {
+        const today = todayLocalDate()
+        const tasks = await api.query('tasks.upcoming', { today, horizonDays: 7 })
+        set({ tasks, loaded: true, error: null, view: 'upcoming' })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
@@ -285,6 +295,9 @@ export function createTaskStore(api: DashApi): TaskStore {
 
   return store
 }
+
+// Make sure we are importing the right type
+export type { TaskMoveScope } from './taskStore'
 
 // Mirrors the main process's `ORDER BY task_order, added_at, id` so the
 // client never fights the sparse sort keys assigned by task.add/task.move.

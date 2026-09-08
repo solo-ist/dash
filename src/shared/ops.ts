@@ -141,6 +141,36 @@ const TaskMoveSchema = z.object({
   parentId: z.string().nullable().optional()
 })
 
+const ReminderKindSchema = z.union([z.literal('relative'), z.literal('absolute')])
+
+// Absolute reminders store a local wall-time datetime (never UTC) — see
+// src/main/reminders/next-fire.ts for the epoch conversion.
+const reminderAt = z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+
+// Cross-field requirement (relative needs minuteOffset, absolute needs at) is
+// enforced in src/main/mutate.ts's addReminder, matching this codebase's
+// pattern of invariant checks living in the handler rather than in zod.
+const ReminderCreateSchema = z.object({
+  type: z.literal('reminder.create'),
+  taskId: z.string(),
+  kind: ReminderKindSchema,
+  minuteOffset: z.number().int().min(0).optional(),
+  at: reminderAt.optional()
+})
+
+const ReminderUpdateSchema = z.object({
+  type: z.literal('reminder.update'),
+  id: z.string(),
+  kind: ReminderKindSchema.optional(),
+  minuteOffset: z.number().int().min(0).nullable().optional(),
+  at: reminderAt.nullable().optional()
+})
+
+const ReminderDeleteSchema = z.object({
+  type: z.literal('reminder.delete'),
+  id: z.string()
+})
+
 export const OpSchema = z.discriminatedUnion('type', [
   TaskAddSchema,
   TaskUpdateSchema,
@@ -162,7 +192,10 @@ export const OpSchema = z.discriminatedUnion('type', [
   SectionUnarchiveSchema,
   LabelAddSchema,
   LabelUpdateSchema,
-  LabelDeleteSchema
+  LabelDeleteSchema,
+  ReminderCreateSchema,
+  ReminderUpdateSchema,
+  ReminderDeleteSchema
 ])
 
 export type Op = z.infer<typeof OpSchema>

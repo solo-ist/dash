@@ -7,7 +7,8 @@ export const QueryParamsSchemas = {
   'sections.list': z.object({ projectId: z.string().optional() }),
   'labels.list': z.object({}),
   'taskLabels.list': z.object({}),
-  'tasks.today': z.object({ today: z.string() })
+  'tasks.today': z.object({ today: z.string() }),
+  'tasks.upcoming': z.object({ today: z.string(), horizonDays: z.number() })
 } as const
 
 export interface QueryResultTypes {
@@ -16,7 +17,8 @@ export interface QueryResultTypes {
   'sections.list': SectionRow[]
   'labels.list': LabelRow[]
   'taskLabels.list': TaskLabelRow[]
-  'tasks.today': TaskRow[]
+  'tasks.today': TaskRow[],
+  'tasks.upcoming': TaskRow[]
 }
 
 export type QueryName = keyof typeof QueryParamsSchemas
