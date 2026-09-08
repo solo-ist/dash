@@ -57,11 +57,18 @@ goal/dash-m1-organize (7 iterations), orchestrator-verified + merged
 reconciliation was wired for labels only; the e2e had a mount race. Slices
 `#16`–`#22` closed; polish nits → `#23`.
 
-## M2 — Time
+## M2 — Time (done 2026-09-08)
 
 Full recurrence engine (`src/shared/recur/`, canonical-string semantics per
-01), Today + Upcoming views, reminders → native notifications, duration,
-deadline. (`#11`)
+01) with completion recompute (old-due base, now iff strict, ending bound
+completes for good, deadline immovable), Today + Upcoming views, reminders
+(pure next-fire + main-process scheduler re-armed on start/resume/mutation;
+migration 002 adds `reminders.fired_at`), duration + deadline UI. Delivered
+by goal/dash-m2-time (7 iterations, wave D2 spec harness#186),
+orchestrator-verified + merged `4d60a3f`. Verification caught and fixed:
+lazily created Inbox missing from MutateResult (broadcast under-report) and
+sidebar Today/Upcoming not switching the view. Slices `#24`–`#28` closed;
+pre-migration backup mechanism now load-bearing → filed for M3.
 
 ## M3 — Find
 
