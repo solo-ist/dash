@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { TaskRowItem } from './TaskRowItem'
 import { TaskList } from './TaskList'
-import { todayLocalDate, datePart, parseLocalDate, addDaysLocal } from '../../lib/dates'
+import { todayLocalDate, parseLocalDate, addDaysLocal } from '../../lib/dates'
 import type { TaskRow } from '../../../shared/types'
-import type { TaskMoveScope } from '../../stores/taskStore'
+import type { TaskMoveScope } from '../../stores/taskStore
 
 // Helper functions for day key generation and grouping
 export function generateDayKeys(today: string, horizonDays: number): string[] {
@@ -122,20 +122,10 @@ export function UpcomingView({
       
       {/* Week strip */}
       <div className="flex justify-between px-4 py-2">
-        {dayKeys.map((dayKey, index) => {
+        {dayKeys.map((dayKey) => {
           const date = parseLocalDate(dayKey)
           const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()]
           const dayNumber = date.getDate()
-          
-          let dayLabel = ''
-          if (index === 0) {
-            dayLabel = 'Today'
-          } else if (index === 1) {
-            dayLabel = 'Tomorrow'
-          } else {
-            dayLabel = `${weekday} ${dayNumber}`
-          }
-          
           return (
             <div key={dayKey} className="flex flex-col items-center rounded-md px-2 py-1 text-sm">
               <span className="text-xs text-muted-foreground">{weekday}</span>

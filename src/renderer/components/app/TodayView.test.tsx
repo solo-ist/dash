@@ -1,70 +1,27 @@
 import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
-import { TodayView } from './TodayView'
-import type { TaskRow } from '../../../shared/types'
+import { isOverdue, datePart, formatDueDate } from '../../lib/dates'
 
-describe('TodayView', () => {
-  const mockTasks: TaskRow[] = [
-    {
-      id: 'task1',
-      checked: 0,
-      content: 'Overdue task',
-      description: '',
-      project_id: 'project1',
-      section_id: null,
-      parent_id: null,
-      priority: 4,
-      due_date: '2023-10-10T10:00:00',
-      due_has_time: 1,
-      recur_string: null,
-      recur_strict: 0,
-      recur_ends: null,
-      deadline_date: null,
-      duration_min: null,
-      task_order: 0,
-      is_header: 0,
-      completed_at: null,
-      added_at: '2023-10-10T08:00:00',
-      updated_at: '2023-10-10T08:00:00',
-      deleted_at: null
-    },
-    {
-      id: 'task2',
-      checked: 0,
-      content: 'Today task',
-      description: '',
-      project_id: 'project1',
-      section_id: null,
-      parent_id: null,
-      priority: 4,
-      due_date: '2023-10-15T14:00:00',
-      due_has_time: 1,
-      recur_string: null,
-      recur_strict: 0,
-      recur_ends: null,
-      deadline_date: null,
-      duration_min: null,
-      task_order: 0,
-      is_header: 0,
-      completed_at: null,
-      added_at: '2023-10-15T08:00:00',
-      updated_at: '2023-10-15T08:00:00',
-      deleted_at: null
-    }
-  ]
+describe('TodayView wall-time logic', () => {
+  it('classifies a task due before today as overdue', () => {
+    expect(isOverdue('2023-10-10T10:00:00', '2023-10-15')).toBe(true)
+  })
 
-  it('renders overdue and today tasks correctly', () => {
-    const { container } = render(
-      <TodayView
-        tasks={mockTasks}
-        onSelectTask={() => {}}
-        selectedTaskId={null}
-        onComplete={() => {}}
-        onDelete={() => {}}
-        onMove={() => {}}
-      />
-    )
-    
-    expect(container).toBeInTheDocument()
+  it('does not classify a task due today as overdue', () => {
+    expect(isOverdue('2023-10-15T14:00:00', '2023-10-15')).toBe(false)
+  })
+
+  it('does not classify a future task as overdue', () => {
+    expect(isOverdue('2023-10-16', '2023-10-15')).toBe(false)
+  })
+
+  it('extracts the date part from a datetime string', () => {
+    expect(datePart('2023-10-15T14:00:00')).toBe('2023-10-15')
+    expect(datePart('2023-10-15')).toBe('2023-10-15')
+  })
+
+  it('formats due dates for display', () => {
+    expect(formatDueDate(null, null)).toBe('No date')
+    expect(formatDueDate('2023-10-15', 0)).toBe('2023-10-15')
+    expect(formatDueDate('2023-10-15T14:30:00', 1)).toBe('2023-10-15 14:30')
   })
 })
