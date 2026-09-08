@@ -3,7 +3,7 @@ import { TaskRowItem } from './TaskRowItem'
 import { TaskList } from './TaskList'
 import { todayLocalDate, parseLocalDate, addDaysLocal } from '../../lib/dates'
 import type { TaskRow } from '../../../shared/types'
-import type { TaskMoveScope } from '../../stores/taskStore
+import type { TaskMoveScope } from '../../stores/taskStore'
 
 // Helper functions for day key generation and grouping
 export function generateDayKeys(today: string, horizonDays: number): string[] {
