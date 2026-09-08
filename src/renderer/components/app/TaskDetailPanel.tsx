@@ -14,6 +14,7 @@ import { cn } from '../../lib/utils'
 import { parseBlocks, type BlockToken, type InlineToken } from '../../lib/markdown'
 import type { LabelRow, TaskRow } from '../../../shared/types'
 import type { TaskUpdatePatch } from '../../stores/taskStore'
+import { formatDueDate } from '../../lib/dates'
 
 const PRIORITY_TEXT: Record<number, string> = {
   1: 'text-red-500',
@@ -356,9 +357,30 @@ export function TaskDetailPanel({
 
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Due date</span>
-            <span className="text-sm text-foreground">
-              {task.due_date !== null ? task.due_date : <span className="text-muted-foreground">No date</span>}
-            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={task.due_date ? task.due_date.substring(0, 10) : ''}
+                onChange={(e) => {
+                  const newDate = e.target.value
+                  if (newDate) {
+                    onUpdate({ dueDate: newDate, dueHasTime: false })
+                  } else {
+                    onUpdate({ dueDate: null, dueHasTime: false })
+                  }
+                }}
+                className="h-5 w-24 rounded border border-border bg-transparent px-1 py-0 text-sm text-foreground"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0"
+                onClick={() => onUpdate({ dueDate: null, dueHasTime: false })}
+                aria-label="Clear due date"
+              >
+                ×
+              </Button>
+            </div>
           </div>
 
           {task.duration_min !== null && (

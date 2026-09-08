@@ -52,3 +52,11 @@ export function listLabels(db: Database): LabelRow[] {
 export function listTaskLabels(db: Database): TaskLabelRow[] {
   return db.prepare('SELECT * FROM task_labels WHERE deleted_at IS NULL').all() as TaskLabelRow[]
 }
+
+export function listTodayTasks(db: Database, today: string): TaskRow[] {
+  return db
+    .prepare(
+      'SELECT * FROM tasks WHERE deleted_at IS NULL AND checked = 0 AND due_date IS NOT NULL AND substr(due_date, 1, 10) <= ? ORDER BY due_date, priority, task_order'
+    )
+    .all(today) as TaskRow[]
+}

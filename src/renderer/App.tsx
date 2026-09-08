@@ -17,6 +17,7 @@ import { QuickAdd } from './components/app/QuickAdd'
 import { UndoBar, type UndoNotice } from './components/app/UndoBar'
 import { selectSubtaskCounts } from './stores/boardSelectors'
 import { Tabs, TabsList, TabsTrigger } from './components/ui/tabs'
+import { TodayView } from './components/app/TodayView'
 import type { TaskAddInput } from '../shared/api'
 
 const useTaskStore = createTaskStore(window.api)
@@ -66,7 +67,7 @@ export default function App(): React.JSX.Element {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [view, setView] = useState<'list' | 'board'>('list')
+  const [view, setView] = useState<'list' | 'board' | 'today'>('list')
 
   useEffect(() => {
     void loadTasks()
@@ -179,10 +180,11 @@ export default function App(): React.JSX.Element {
         />
         <main className="flex flex-1 flex-col overflow-hidden">
           <div className="flex items-center justify-end border-b border-border px-4 py-1.5">
-            <Tabs value={view} onValueChange={(value) => setView(value as 'list' | 'board')}>
+            <Tabs value={view} onValueChange={(value) => setView(value as 'list' | 'board' | 'today')}>
               <TabsList>
                 <TabsTrigger value="list">List</TabsTrigger>
                 <TabsTrigger value="board">Board</TabsTrigger>
+                <TabsTrigger value="today">Today</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -205,6 +207,15 @@ export default function App(): React.JSX.Element {
                   onRenameSection={(id, name) => void renameSection(id, name)}
                   onArchiveSection={(id) => void archiveSection(id)}
                   onDeleteSection={(id) => void removeSection(id)}
+                />
+              ) : view === 'today' ? (
+                <TodayView
+                  tasks={openTasks}
+                  selectedTaskId={selectedTaskId}
+                  onSelectTask={(id) => setSelectedTaskId((current) => (current === id ? null : id))}
+                  onComplete={handleComplete}
+                  onDelete={handleDelete}
+                  onMove={(id, targetIndex, scope) => void moveTask(id, targetIndex, scope)}
                 />
               ) : (
                 selectedProjectId !== null && (

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type Database from 'better-sqlite3'
 import { openDatabase } from './db/open'
 import { migrate } from './db/migrate'
@@ -216,6 +216,139 @@ describe('mutate', () => {
 
     const allSections = listSections(db)
     expect(allSections.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('recurring completions', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openDatabase(':memory:')
+    migrate(db)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('advances due_date from the OLD due date, leaves checked=0, and appends exactly one completion', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'Water plants',
+      dueDate: '2026-01-15',
+      dueHasTime: false,
+      recurString: 'every day'
+    })
+    const id = added.tasks![0].id
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.due_date).toBe('2026-01-16')
+    expect(task.checked).toBe(0)
+    expect(task.completed_at).toBeNull()
+
+    const completions = db.prepare('SELECT * FROM completions WHERE task_id = ?').all(id) as Array<{
+      task_id: string
+    }>
+    expect(completions).toHaveLength(1)
+  })
+
+  it('every! (strict) recomputes the next due date from now, not from the old due date', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 5, 1, 10, 0, 0))
+
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'Backup',
+      dueDate: '2026-01-01',
+      dueHasTime: false,
+      recurString: 'every! 2 weeks',
+      recurStrict: true
+    })
+    const id = added.tasks![0].id
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    // base = now (2026-06-01), not the old due date (2026-01-01)
+    expect(task.due_date).toBe('2026-06-15')
+    expect(task.checked).toBe(0)
+  })
+
+  it('completes for good once a passed "ending" bound is reached', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'Daily standup',
+      dueDate: '2026-09-10',
+      dueHasTime: false,
+      recurString: 'every day ending 2026-09-10'
+    })
+    const id = added.tasks![0].id
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.checked).toBe(1)
+    expect(task.completed_at).toBeTruthy()
+    expect(task.due_date).toBe('2026-09-10')
+
+    const completions = db.prepare('SELECT * FROM completions WHERE task_id = ?').all(id) as Array<{
+      task_id: string
+    }>
+    expect(completions).toHaveLength(1)
+  })
+
+  it('never moves deadline_date when recomputing due_date', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'File taxes',
+      dueDate: '2026-03-01',
+      dueHasTime: false,
+      recurString: 'every month'
+    })
+    const id = added.tasks![0].id
+    db.prepare('UPDATE tasks SET deadline_date = ? WHERE id = ?').run('2026-04-15', id)
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.due_date).toBe('2026-04-01')
+    expect(task.deadline_date).toBe('2026-04-15')
+  })
+
+  it('falls back to normal completion for a corrupt recur_string', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'Bad recur',
+      dueDate: '2026-01-15',
+      dueHasTime: false
+    })
+    const id = added.tasks![0].id
+    db.prepare('UPDATE tasks SET recur_string = ? WHERE id = ?').run('not a real recur string', id)
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.checked).toBe(1)
+    expect(task.completed_at).toBeTruthy()
+  })
+
+  it('leaves non-recurring completion behavior unchanged', () => {
+    const added = mutate(db, {
+      type: 'task.add',
+      content: 'One-off',
+      dueDate: '2026-01-15',
+      dueHasTime: false
+    })
+    const id = added.tasks![0].id
+
+    const completed = mutate(db, { type: 'task.complete', id })
+    const task = completed.tasks![0]
+
+    expect(task.checked).toBe(1)
+    expect(task.completed_at).toBeTruthy()
+    expect(task.due_date).toBe('2026-01-15')
   })
 })
 

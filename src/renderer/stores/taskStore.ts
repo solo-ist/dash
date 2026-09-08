@@ -3,6 +3,7 @@ import type { StoreApi, UseBoundStore } from 'zustand'
 import type { DashApi, TaskAddInput } from '../../shared/api'
 import type { TaskRow } from '../../shared/types'
 import type { Op } from '../../shared/ops'
+import { todayLocalDate } from '../lib/dates'
 
 export type TaskStore = UseBoundStore<StoreApi<TaskState>>
 
@@ -13,7 +14,9 @@ export interface TaskState {
   tasks: TaskRow[]
   loaded: boolean
   error: string | null
+  view: 'list' | 'board' | 'today'
   load: () => Promise<void>
+  loadToday: () => Promise<void>
   add: (input: TaskAddInput) => Promise<void>
   addSubtask: (parentId: string, content: string) => Promise<void>
   update: (id: string, patch: TaskUpdatePatch) => Promise<void>
@@ -37,10 +40,20 @@ export function createTaskStore(api: DashApi): TaskStore {
     tasks: [],
     loaded: false,
     error: null,
+    view: 'list',
     load: async () => {
       try {
         const tasks = await api.query('tasks.list', {})
         set({ tasks, loaded: true, error: null })
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+    loadToday: async () => {
+      try {
+        const today = todayLocalDate()
+        const tasks = await api.query('tasks.today', { today })
+        set({ tasks, loaded: true, error: null, view: 'today' })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }

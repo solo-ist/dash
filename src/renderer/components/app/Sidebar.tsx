@@ -11,6 +11,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '../ui/context-menu'
+import { Calendar } from 'lucide-react'
 import type { LabelRow, ProjectRow } from '../../../shared/types'
 
 export interface SidebarProps {
@@ -192,6 +193,11 @@ export function Sidebar({
     setDialog(null)
   }
 
+  function handleSelectToday(): void {
+    // For Today view, we don't select any project
+    onSelect(null)
+  }
+
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-border">
       <ScrollArea className="flex-1 px-2 py-3">
@@ -206,6 +212,21 @@ export function Sidebar({
             />
           )}
         </div>
+
+        <Separator className="my-3" />
+        <button
+          type="button"
+          onClick={handleSelectToday}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+            selectedProjectId === null
+              ? 'bg-accent text-accent-foreground'
+              : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
+          )}
+        >
+          <Calendar className="h-4 w-4" />
+          <span>Today</span>
+        </button>
 
         {favorites.length > 0 && (
           <>

@@ -3,10 +3,24 @@ import { nanoid } from 'nanoid'
 import { OpSchema, type Op } from '../shared/ops'
 import { insertionKeys, keyAfter } from '../shared/order/keys'
 import { planReorder, type SiblingEntry } from '../shared/order/reorder'
+import { nextOccurrence, parseRecur } from '../shared/recur'
 import type { LabelRow, MutateResult, ProjectRow, SectionRow, TaskLabelRow, TaskRow } from '../shared/types'
 
 function nowIso(): string {
   return new Date().toISOString()
+}
+
+/** Current moment as a local wall-time datetime string (never UTC) — matches
+ * src/shared/quickadd/parse.ts's formatDate. Used only as a recurrence base
+ * for `every!` (strict) completions; updated_at/completed_at stay UTC via nowIso(). */
+function localWallNow(): string {
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}:00`
 }
 
 function readTaskRow(db: Database, id: string): TaskRow | undefined {
@@ -260,8 +274,20 @@ function completeTask(db: Database, op: Extract<Op, { type: 'task.complete' }>):
      VALUES (?, ?, ?, ?)`
   ).run(task.id, task.content, task.project_id, now)
 
-  // TODO(recur engine, later issue): when task.recur_string is set, this
-  // should recompute due_date instead of checking the task off for good.
+  const rule = task.recur_string ? parseRecur(task.recur_string) : null
+  if (rule) {
+    const base = rule.strict ? localWallNow() : (task.due_date ?? localWallNow())
+    const next = nextOccurrence(rule, base)
+
+    if (next !== null) {
+      db.prepare(
+        'UPDATE tasks SET due_date = ?, due_has_time = ?, checked = 0, completed_at = NULL, updated_at = ? WHERE id = ?'
+      ).run(next, next.includes('T') ? 1 : 0, now, op.id)
+      return requireTaskRow(db, op.id)
+    }
+    // rule.ends has passed: fall through and complete the task for good.
+  }
+
   db.prepare('UPDATE tasks SET checked = 1, completed_at = ?, updated_at = ? WHERE id = ?').run(
     now,
     now,
