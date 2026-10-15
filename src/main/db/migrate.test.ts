@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { openDatabase } from './open'
 import { migrate } from './migrate'
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
