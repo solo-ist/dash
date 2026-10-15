@@ -10,8 +10,9 @@ import { computeDropIndex } from './TaskList'
 import type { DropPosition } from './TaskRowItem'
 import { selectBoardColumns, type BoardColumn } from '../../stores/boardSelectors'
 import type { TaskMoveScope } from '../../stores/taskStore'
-import { todayLocalDate, datePart } from '../../lib/dates'
+import { todayLocalDate, datePart, isOverdue } from '../../lib/dates'
 import type { SectionRow, TaskRow } from '../../../shared/types'
+import { TaskTitle } from './TaskTitle'
 
 const PRIORITY_RING: Record<number, string> = {
   1: 'border-red-400 text-red-400',
@@ -60,6 +61,8 @@ function BoardCard({
 }: BoardCardProps): React.JSX.Element {
   const today = todayLocalDate()
   const isDeadlinePast = task.deadline_date !== null && datePart(task.deadline_date) < today
+  const isOverdueTask = task.due_date !== null && isOverdue(task.due_date, today)
+  const isTodayTask = task.due_date !== null && datePart(task.due_date) === today
 
   return (
     <ContextMenu>
@@ -110,11 +113,12 @@ function BoardCard({
                   priorityRing(task.priority)
                 )}
               />
-              <span className="flex-1 text-foreground">{task.content}</span>
+              <span className="flex-1 text-foreground"><TaskTitle text={task.content} /></span>
             </div>
             {(subtaskCount !== undefined && subtaskCount > 0) ||
             task.deadline_date !== null ||
-            task.duration_min !== null ? (
+            task.duration_min !== null ||
+            task.due_date !== null ? (
               <div className="flex flex-wrap items-center gap-1">
                 {subtaskCount !== undefined && subtaskCount > 0 && (
                   <span className="w-fit shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -130,6 +134,9 @@ function BoardCard({
                   >
                     ◆ {datePart(task.deadline_date)}
                   </span>
+                )}
+                {task.due_date !== null && (
+                  <span className={cn('w-fit shrink-0 text-xs', isOverdueTask ? 'text-red-500' : 'text-muted-foreground')}>{isTodayTask ? 'Today' : datePart(task.due_date)}</span>
                 )}
                 {task.duration_min !== null && (
                   <span className="w-fit shrink-0 text-xs text-muted-foreground">{task.duration_min} min</span>

@@ -3,6 +3,7 @@ import { cn } from '../../lib/utils'
 import { todayLocalDate, isOverdue, datePart } from '../../lib/dates'
 import type { LabelRow, TaskRow } from '../../../shared/types'
 import type { SubtaskCounts, TaskMoveScope } from '../../stores/taskStore'
+import { TaskTitle } from './TaskTitle'
 
 export type DropPosition = 'before' | 'after'
 
@@ -86,9 +87,7 @@ export function TaskRowItem({
         aria-label={task.checked === 1 ? 'Uncomplete task' : 'Complete task'}
       />
       <div className="min-w-0 flex-1">
-        <span className={cn(task.checked === 1 && 'line-through', isOverdueTask && 'text-red-500')}>
-          {task.content}
-        </span>
+        <TaskTitle text={task.content} className={cn(task.checked === 1 && 'line-through', isOverdueTask && 'text-red-500')} />
         {task.due_date !== null && (
           <span className={cn('ml-2 text-xs', isOverdueTask ? 'text-red-500' : 'text-muted-foreground')}>
             {isTodayTask ? 'Today' : datePart(task.due_date)}

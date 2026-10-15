@@ -17,5 +17,6 @@ declare module 'better-sqlite3' {
     pragma(sql: string, opts?: { simple?: boolean }): unknown
     transaction<F extends (...args: never[]) => unknown>(fn: F): F
     close(): void
+    readonly name: string
   }
 }
