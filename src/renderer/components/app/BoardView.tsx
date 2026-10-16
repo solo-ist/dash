@@ -136,7 +136,7 @@ function BoardCard({
                   </span>
                 )}
                 {task.due_date !== null && (
-                  <span className={cn('w-fit shrink-0 text-xs', isOverdueTask ? 'text-red-500' : 'text-muted-foreground')}>{isTodayTask ? 'Today' : datePart(task.due_date)}</span>
+                  <span className={cn('w-fit shrink-0 text-xs', isOverdueTask ? 'text-destructive' : 'text-muted-foreground')}>{isTodayTask ? 'Today' : datePart(task.due_date)}</span>
                 )}
                 {task.duration_min !== null && (
                   <span className="w-fit shrink-0 text-xs text-muted-foreground">{task.duration_min} min</span>

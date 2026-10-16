@@ -28,8 +28,10 @@ export function migrate(db: Database): void {
   const pending = MIGRATIONS.filter((migration) => migration.version > current)
   if (pending.length === 0) return
 
-  // Create backup if db is file-backed
-  if (db.name !== ':memory:' && existsSync(db.name)) {
+  if (db.name !== '' && db.name !== ':memory:' && existsSync(db.name)) {
+    // The connection runs in WAL mode: committed pages may still sit in the
+    // -wal sidecar, so checkpoint into the main file before snapshotting it.
+    db.pragma('wal_checkpoint(TRUNCATE)')
     copyFileSync(db.name, `${db.name}.bak-${current}`)
   }
 

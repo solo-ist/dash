@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { openDatabase } from './open'
 import { migrate } from './migrate'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,7 +13,7 @@ describe('migrate', () => {
     expect(db.pragma('user_version', { simple: true })).toBe(2)
 
     const tables = (
-      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ").all() as Array<{
         name: string
       }>
     ).map((row) => row.name)
@@ -59,65 +59,68 @@ describe('migrate', () => {
   it('backs up a file-backed db before migrating', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dash-migrate-'))
     const dbPath = join(dir, 'dash.db')
-    
-    // Create and initialize a database
+
     const db = openDatabase(dbPath)
-    // Set initial version to 0
     db.exec('PRAGMA user_version = 0')
     db.close()
-    
-    // Now migrate it
+
     const db2 = openDatabase(dbPath)
     migrate(db2)
-    
-    // Check that backup exists
+
     const backupPath = `${dbPath}.bak-0`
     expect(existsSync(backupPath)).toBe(true)
-    
-    // Verify backup contains the pre-upgrade state
+
     const backupDb = openDatabase(backupPath)
     expect(backupDb.pragma('user_version', { simple: true })).toBe(0)
     backupDb.close()
-    
-    // Verify live db was upgraded
+
     expect(db2.pragma('user_version', { simple: true })).toBe(2)
-    
+
     db2.close()
-    
-    // Cleanup
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('overwrites a same-version backup on re-run', () => {
+  it('backup includes committed writes that were still in the WAL sidecar', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dash-migrate-'))
     const dbPath = join(dir, 'dash.db')
-    
-    // Create and initialize a database
+
     const db = openDatabase(dbPath)
-    // Set initial version to 0
+    db.exec('CREATE TABLE pre_existing (id INTEGER PRIMARY KEY, note TEXT)')
+    db.prepare('INSERT INTO pre_existing (note) VALUES (?)').run('in the wal')
+    // The commit above lives in dash.db-wal until a checkpoint; migrate must
+    // checkpoint before copying or the backup silently loses it.
+    migrate(db)
+    db.close()
+
+    const backupDb = openDatabase(`${dbPath}.bak-0`)
+    const row = backupDb.prepare('SELECT note FROM pre_existing').get() as { note: string }
+    expect(row.note).toBe('in the wal')
+    expect(backupDb.pragma('user_version', { simple: true })).toBe(0)
+    backupDb.close()
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('overwrites a stale same-version backup', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dash-migrate-'))
+    const dbPath = join(dir, 'dash.db')
+
+    const db = openDatabase(dbPath)
     db.exec('PRAGMA user_version = 0')
     db.close()
-    
-    // Migrate it once
+
+    const backupPath = `${dbPath}.bak-0`
+    writeFileSync(backupPath, 'stale non-sqlite content')
+
     const db2 = openDatabase(dbPath)
     migrate(db2)
     db2.close()
-    
-    // Verify backup was created
-    const backupPath = `${dbPath}.bak-0`
-    expect(existsSync(backupPath)).toBe(true)
-    
-    // Migrate again - should overwrite the backup
-    const db3 = openDatabase(dbPath)
-    migrate(db3)
-    
-    // Since there are no pending migrations, no new backup should be created
-    // (this tests that the backup only happens when there are pending migrations)
-    expect(existsSync(`${dbPath}.bak-2`)).toBe(false)
-    
-    db3.close()
-    
-    // Cleanup
+
+    // copyFileSync clobbers: the stale file is now a valid pre-upgrade snapshot
+    const backupDb = openDatabase(backupPath)
+    expect(backupDb.pragma('user_version', { simple: true })).toBe(0)
+    backupDb.close()
+
     rmSync(dir, { recursive: true, force: true })
   })
 

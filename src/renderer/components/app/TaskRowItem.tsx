@@ -87,9 +87,9 @@ export function TaskRowItem({
         aria-label={task.checked === 1 ? 'Uncomplete task' : 'Complete task'}
       />
       <div className="min-w-0 flex-1">
-        <TaskTitle text={task.content} className={cn(task.checked === 1 && 'line-through', isOverdueTask && 'text-red-500')} />
+        <TaskTitle text={task.content} className={cn(task.checked === 1 && 'line-through', isOverdueTask && 'text-destructive')} />
         {task.due_date !== null && (
-          <span className={cn('ml-2 text-xs', isOverdueTask ? 'text-red-500' : 'text-muted-foreground')}>
+          <span className={cn('ml-2 text-xs', isOverdueTask ? 'text-destructive' : 'text-muted-foreground')}>
             {isTodayTask ? 'Today' : datePart(task.due_date)}
           </span>
         )}
