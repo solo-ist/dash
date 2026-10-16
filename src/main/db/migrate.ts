@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { copyFileSync, existsSync } from 'node:fs'
 import migration001 from './migrations/001_init.sql?raw'
 import migration002 from './migrations/002_reminders_fired_at.sql?raw'
 
@@ -21,13 +22,18 @@ function readUserVersion(db: Database): number {
   return raw
 }
 
-// architecture.md §3 calls for backing up to dash.db.bak-<version> before each
-// migration batch; deferred until a real userData file path exists (M0 runs
-// entirely against ':memory:').
+// architecture.md §3 backup convention: <path>.bak-<fromVersion>
 export function migrate(db: Database): void {
   const current = readUserVersion(db)
   const pending = MIGRATIONS.filter((migration) => migration.version > current)
   if (pending.length === 0) return
+
+  if (db.name !== '' && db.name !== ':memory:' && existsSync(db.name)) {
+    // The connection runs in WAL mode: committed pages may still sit in the
+    // -wal sidecar, so checkpoint into the main file before snapshotting it.
+    db.pragma('wal_checkpoint(TRUNCATE)')
+    copyFileSync(db.name, `${db.name}.bak-${current}`)
+  }
 
   const applyPending = db.transaction(() => {
     for (const migration of pending) {
